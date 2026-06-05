@@ -1,0 +1,24 @@
+# Data handling
+pandas
+numpy
+
+# Visualisation
+matplotlib
+seaborn
+plotly
+
+# App/dashboard
+streamlit
+
+# Machine learning / modelling
+scikit-learn
+
+# API requests and environment variables
+requests
+python-dotenv
+
+# Notebooks
+jupyter
+
+# Testing
+pytest

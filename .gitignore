@@ -1,0 +1,15 @@
+# Ignore Data
+data/
+
+# Ignore environment variables
+.env
+.venv/
+
+# Ignore Claude Prompt
+CLAUDE.md
+
+# Ignore python cache
+__pycache__/
+
+# Ignore hidden file automatically created by macOS Finder
+.DS_Store
