@@ -15,6 +15,7 @@ __pycache__/
 
 # Ignore snowflake cache
 .snowflake/
+.folder
 
 # Ignore hidden file automatically created by macOS Finder
 .DS_Store
