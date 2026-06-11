@@ -1,10 +1,16 @@
-# import packages
-import sys # interact with current Python env
-from pathlib import Path # list of folders for pathing
+# ============================================================
+# Setup runner — executes all setup/*.sql files in order,
+# server-side from the live workspace stage.
+# ============================================================
 
-# find the project root by walking up from the current directory
-# until folder is found containing config/ — works in scripts and notebooks
+# import packages
+import sys                # interact with current Python env
+import importlib          # force-reload modules during development
+from pathlib import Path  # object-oriented file pathing
+
+# ---- locate project root & enable config/ imports ----
 def find_project_root(marker: str = "config") -> Path:
+    """Walk up from the current directory until a folder containing `marker/` is found."""
     p = Path.cwd().resolve()
     for candidate in [p, *p.parents]:
         if (candidate / marker).is_dir():
@@ -13,30 +19,40 @@ def find_project_root(marker: str = "config") -> Path:
 
 PROJECT_ROOT = find_project_root()
 
-# check whether the project root is already inside sys.path
 if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT)) # convert to string as sys.path stores paths as text, (0) gives the project priority
+    sys.path.insert(0, str(PROJECT_ROOT))  # give project imports priority
 
-# import functions from config files
-from config.snowflake_context import get_session, confirm_warehouse # find config/ folder
-from config.run_sql_file import run_sql_file 
+# ---- import helpers (reloaded fresh so config/ edits are picked up) ----
+import config.snowflake_context
+importlib.reload(config.snowflake_context)
+from config.snowflake_context import get_session, confirm_warehouse, workspace_stage_path
 
-# create a Snowflake session using your helper function.
+# ---- connect ----
 session = get_session("dev")
 
-# find all .sql files in setup/ and sort by filename
-setup_dir = PROJECT_ROOT / "setup"
-sql_files = sorted(setup_dir.glob("*.sql"))
+# ---- locate setup files on the LIVE workspace stage ----
+# The kernel's local file mount is a frozen snapshot from session start;
+# the live stage always reflects current saved edits — no kernel restart needed.
+WORKSPACE_STAGE = workspace_stage_path("setup")
 
-# error handle an empty or wrong folder
+listed = session.sql(f"LIST '{WORKSPACE_STAGE}/'").collect()
+sql_files = sorted(
+    row[0].rsplit("/", 1)[-1]              # keep just the filename
+    for row in listed
+    if row[0].lower().endswith(".sql")
+)
+
 if not sql_files:
-    raise FileNotFoundError(f"No .sql files found in {setup_dir}")
+    raise FileNotFoundError(f"No .sql files found on stage: {WORKSPACE_STAGE}")
 
-# run each setup SQL file in order
-for sql_file in sql_files:
-    print(f"Running setup file: {sql_file.name}")
-    run_sql_file(session, sql_file)
+# ---- run each setup file in order, server-side ----
+for i, sql_file in enumerate(sql_files, 1):
+    print(f"[{i}/{len(sql_files)}] Running setup file: {sql_file}")
+    try:
+        session.sql(f"EXECUTE IMMEDIATE FROM '{WORKSPACE_STAGE}/{sql_file}'").collect()
+    except Exception as e:
+        raise RuntimeError(f"Setup file '{sql_file}' failed") from e
 
-# confirm active warehouse
+# ---- verify ----
 confirm_warehouse(session)
 print("Setup Complete.")

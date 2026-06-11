@@ -8,13 +8,15 @@ from snowflake.snowpark.context import get_active_session # access current conne
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[1]
 except NameError:
-    PORJECT_ROOT = Path.cwd()
+    PROJECT_ROOT = Path.cwd()
 
 # warehouse dictionary of existing project warehouses
 WAREHOUSES = {
     "dev": "AIRBNB_DEV_WH",
     "query": "AIRBNB_APP_WH"
 }
+# project-wide settings
+WORKSPACE_NAME = "airbnb-investment-app"
 
 # function 1
 def add_project_root_to_path():
@@ -53,3 +55,8 @@ def confirm_warehouse(session):
     print(f"Current warehouse: {wh}")
     return wh
 
+# function 4
+def workspace_stage_path(folder: str = "") -> str:
+    """Build a snow:// path to a folder on the live workspace stage."""
+    base = f'snow://workspace/USER$.PUBLIC."{WORKSPACE_NAME}"/versions/live'
+    return f"{base}/{folder}" if folder else base
