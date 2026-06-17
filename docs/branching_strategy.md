@@ -394,14 +394,15 @@ Data Engineer
 Added the first version of the data ingestion pipeline.
 
 ## Files changed
-- notebooks/01_data_ingestion.ipynb
-- src/ingestion.py
+- etl/01_bronze_ddl.sql
+- etl/load_bronze.py
+- config/ingestion_manifest.py
 
 ## Checks completed
 - confirmed the raw file loads correctly
 - checked column names
 - checked row count
-- confirmed output saves to the correct folder
+- confirmed rows landed in the BRONZE schema with audit metadata
 
 ## Notes
 Further validation may be needed after cleaning is completed.

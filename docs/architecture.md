@@ -10,6 +10,11 @@ big picture, then dive into the linked docs for details.
 > **Status:** This describes the *target* structure we are building toward. Some folders
 > (`src/`, `tests/`, `app/`, the numbered notebook folders) may not exist yet — they are
 > created as each part of the project is built.
+>
+> **Runtime reality:** the project runs **inside Snowflake** (Snowpark
+> `get_active_session()`). Data lives in Snowflake **schemas** (BRONZE / SILVER / GOLD), not a
+> local `data/` folder, and there is no `.venv` / `requirements.txt` (see README "Where This
+> Runs"). The ingestion layer is built today under `config/` + `etl/`, not `src/`.
 
 ---
 
@@ -37,11 +42,11 @@ cleaner and more useful at each step:
 **Golden rule:** data only flows **downward**. Never edit bronze by hand; cleaned data goes
 to silver; final app-ready data goes to gold. The app reads from **gold only**.
 
-| Layer | Folder | Holds | Example files |
-|-------|--------|-------|---------------|
-| Bronze | `data/bronze/` | Raw / lightly standardised | `listings.csv`, `reviews.csv`, `calendar.csv`, `neighbourhoods.geojson` |
-| Silver | `data/silver/` | Cleaned & validated | `listings_cleaned.csv`, `reviews_cleaned.csv` |
-| Gold | `data/gold/` | Final app-ready outputs | `app_ready_dataset.csv`, `investment_scores.csv`, `area_summary.csv` |
+| Layer | Snowflake schema | Holds | Example tables |
+|-------|------------------|-------|----------------|
+| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `REVIEWS_CLEANED` |
+| Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
 
 ---
 
@@ -50,52 +55,54 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 ```text
 airbnb-investment-app/
 ├── README.md            # main project guide (start here)
-├── CHEATSHEET.md        # quick copy-paste commands
-├── requirements.txt     # Python packages
-├── setup.py             # makes src/ importable (pip install -e .)
 │
-├── data/                # datasets (gitignored — not uploaded to GitHub)
-│   ├── bronze/          # raw
-│   ├── silver/          # cleaned
-│   └── gold/            # app-ready
+├── config/              # shared helpers (EXISTS)
+│   ├── snowflake_context.py   # session + warehouse helpers
+│   ├── run_sql_file.py        # client-side SQL runner
+│   └── ingestion_manifest.py  # declarative list of Bronze datasets
 │
-├── notebooks/           # exploration + running the pipeline, by stage
-│   ├── 01_bronze_ingestion/
-│   ├── 02_silver_cleaning/
-│   ├── 03_gold_features/
-│   ├── 04_analysis/
-│   └── 05_modelling/
+├── setup/               # one-time DB/warehouse/integration setup (EXISTS)
+│   ├── run_setup.py
+│   ├── 00_setup_api_integration.sql
+│   └── 01_setup_database_and_warehouse.sql
 │
-├── src/                 # reusable code the notebooks & app import (the "kitchen")
-│   ├── config.py        # data paths in one place
-│   ├── ingestion.py     # load raw data
-│   ├── cleaning.py      # clean each dataset
-│   ├── features.py      # area summaries, investment score
-│   └── modelling.py     # review sentiment, scoring model
+├── etl/                 # the pipeline, by layer (Bronze EXISTS)
+│   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
+│   ├── load_bronze.py         # generic loader, driven by the manifest
+│   ├── silver/ (later)        # cleaning / typing
+│   └── gold/   (later)        # features / scoring
 │
-├── tests/               # pytest checks for src/ functions
-├── app/                 # Streamlit app (reads data/gold only)
+├── notebooks/           # exploration + running the pipeline
+│   └── preprocessing_layer.ipynb
+│
+├── app/  (later)        # Streamlit app (reads GOLD schema only)
+├── tests/ (later)       # validation of data & loader behaviour
 │
 └── docs/                # project documentation
     ├── architecture.md      # ← you are here
-    ├── what_is_src.md
+    ├── what_is_src.md       # note: src/ is aspirational; today logic lives in config/ + etl/
     ├── branching_strategy.md
     └── data_sources.md      # where the raw data came from
+
+# Data itself is NOT in this repo — it lives in Snowflake schemas:
+#   AIRBNB_INVESTMENT_DB.{BRONZE, SILVER, GOLD}
 ```
 
 ---
 
 ## What each top-level folder is for
 
-- **`data/`** — all datasets, split into bronze/silver/gold. Ignored by Git (too large /
-  recreatable). See `data_sources.md` for where the raw files came from.
-- **`notebooks/`** — where we *explore* data and *run* the pipeline, organised by stage so
-  the data flow reads top-to-bottom. One notebook = one focused job.
-- **`src/`** — the reusable logic notebooks and the app share. Full explanation in
-  [what_is_src.md](what_is_src.md).
-- **`tests/`** — automated checks (`pytest`) that the `src/` functions behave correctly.
-- **`app/`** — the Streamlit dashboard users see. It only reads from `data/gold/`.
-- **`docs/`** — guides for the team (this file, the Git workflow, the `src/` guide).
+- **Data** — lives in Snowflake schemas (BRONZE / SILVER / GOLD), **not** a local `data/`
+  folder. See `data_sources.md` for where the raw files came from.
+- **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
+- **`setup/`** — one-time database, warehouse, and integration setup.
+- **`etl/`** — the pipeline itself, by layer (Bronze loader today; Silver/Gold later).
+- **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
+- **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
+  `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).
+- **`tests/`** *(later)* — automated checks (`pytest`) for loader behaviour and data validity.
+- **`app/`** *(later)* — the Streamlit dashboard users see. It only reads from the GOLD schema.
+- **`docs/`** — guides for the team (this file, the Git workflow, the shared-logic guide).
 
 ---
 
@@ -106,11 +113,11 @@ these areas:
 
 | Role | Works in | Produces |
 |------|----------|----------|
-| Data Engineer | `notebooks/01–03`, `src/ingestion,cleaning,features` | bronze → silver → gold data |
+| Data Engineer | `etl/` (Bronze loader today), `config/` | bronze → silver → gold tables |
 | Data Analyst | `notebooks/04_analysis/` | EDA, price/location insights, metrics |
-| AI Engineer | `notebooks/05_modelling/`, `src/modelling.py` | review sentiment, scoring model |
-| Frontend Dev | `app/` | the Streamlit dashboard |
-| QA Tester | `tests/` | validation of data & `src/` functions |
+| AI Engineer | `notebooks/`, model code | review sentiment, scoring model |
+| Frontend Dev | `app/` *(later)* | the Streamlit dashboard |
+| QA Tester | `tests/` *(later)* | validation of data & loader behaviour |
 
 This keeps two people from editing the same file at once, which reduces merge conflicts.
 
@@ -118,11 +125,11 @@ This keeps two people from editing the same file at once, which reduces merge co
 
 ## Rules everyone follows
 
-1. **Data flows downward only:** bronze → silver → gold. Never overwrite bronze by hand.
-2. **The app reads gold only** — never bronze or silver.
-3. **Logic lives in `src/`, not copy-pasted across notebooks** (see [what_is_src.md](what_is_src.md)).
-4. **No hardcoded paths** — import them from `src/config.py`.
-5. **One notebook = one focused job**, with a number prefix so order is clear.
+1. **Data flows downward only:** BRONZE → SILVER → GOLD. Never overwrite Bronze by hand.
+2. **The app reads the GOLD schema only** — never Bronze or Silver.
+3. **Logic lives in shared modules (`config/` + `etl/`), not copy-pasted across notebooks** (see [what_is_src.md](what_is_src.md)).
+4. **No hardcoded connection details** — use `config/snowflake_context.py`.
+5. **One notebook / one script = one focused job**, with a number prefix so order is clear.
 6. **Never commit** `data/`, `.venv/`, `.env`, secrets, or `.ipynb_checkpoints/`.
 7. **No direct pushes to `main`** — branch + Pull Request (see [branching_strategy.md](branching_strategy.md)).
 
@@ -132,11 +139,10 @@ This keeps two people from editing the same file at once, which reduces merge co
 
 > Goal: add an "investment score" column the app can show.
 
-1. **Silver** — `src/cleaning.clean_listings()` produces clean listings (notebook in `02_`).
-2. **Gold** — `src/features.investment_score()` computes the score; a `03_gold_features/`
-   notebook writes `data/gold/investment_scores.csv`.
-3. **Test** — `tests/test_features.py` checks the score is between 0 and 100.
-4. **App** — `app/main.py` imports `investment_score` results and displays them.
+1. **Silver** — a shared cleaning transform produces clean listings in the SILVER schema.
+2. **Gold** — a shared scoring transform computes the score and writes
+   `GOLD.INVESTMENT_SCORES`.
+3. **Test** — a QA check confirms the score is between 0 and 100.
+4. **App** — `app/main.py` reads `GOLD.INVESTMENT_SCORES` and displays it.
 
-The same `investment_score()` function powers the gold dataset, the test, and the app — so
-they can never disagree.
+The same scoring logic powers the GOLD table, the test, and the app — so they can never disagree.
