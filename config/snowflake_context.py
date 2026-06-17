@@ -17,6 +17,7 @@ WAREHOUSES = {
 }
 # project-wide settings
 WORKSPACE_NAME = "airbnb-investment-app"
+DATABASE = "AIRBNB_INVESTMENT_DB"   # every layer lives in this database
 
 # function 1
 def add_project_root_to_path():
@@ -44,6 +45,9 @@ def get_session(warehouse = "dev"):
     warehouse_name = WAREHOUSES[warehouse]
     # direct Snowflake to choose warehouse
     session.sql(f"USE WAREHOUSE {warehouse_name}").collect()
+    # anchor the database context so schema-qualified names (BRONZE.x) resolve.
+    # Snowpark sessions do NOT inherit USE DATABASE from a separately-run SQL file.
+    session.sql(f"USE DATABASE {DATABASE}").collect()
     return session
 
 # function 3
