@@ -41,7 +41,7 @@ airbnb-investment-app/
 │   └── 01_setup_database_and_warehouse.sql
 ├── etl/
 │   ├── 01_bronze_ddl.sql          # file formats + RAW_STAGE (run once)
-│   └── load_bronze.py             # generic loader, driven by the manifest
+│   └── 02_bronze_load.py             # generic loader, driven by the manifest
 ├── notebooks/
 │   └── preprocessing_layer.ipynb
 └── docs/

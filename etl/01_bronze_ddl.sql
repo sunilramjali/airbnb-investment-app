@@ -3,12 +3,12 @@
 -- ------------------------------------------------------------
 -- Run this ONCE to create the reusable file formats and the
 -- internal landing stage. The actual per-file / per-city loading
--- lives in etl/load_bronze.py (driven by config/ingestion_manifest.py).
+-- lives in etl/02_bronze_load.py (driven by config/ingestion_manifest.py).
 --
 -- FLOW:
 --   1) Run this file              -> file formats + RAW_STAGE.
 --   2) Upload files to            -> @BRONZE.RAW_STAGE/<city>/.
---   3) Run etl/load_bronze.py     -> creates + loads every Bronze table.
+--   3) Run etl/02_bronze_load.py     -> creates + loads every Bronze table.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
@@ -45,6 +45,6 @@ CREATE STAGE IF NOT EXISTS BRONZE.RAW_STAGE
 --------------------------------------------------------
 -- 2b. EXTERNAL STAGE (AWS S3)  —  Step 2.
 --     STORAGE INTEGRATION + external stage go here later.
---     load_bronze.py points at @BRONZE.RAW_STAGE today; swapping to
+--     02_bronze_load.py points at @BRONZE.RAW_STAGE today; swapping to
 --     an S3 external stage is a one-line change there.
 --------------------------------------------------------

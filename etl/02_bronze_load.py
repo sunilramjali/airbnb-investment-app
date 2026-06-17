@@ -80,9 +80,10 @@ def create_csv_table(session, table: str, sample_location: str) -> None:
     """).collect()
 
 
-def copy_csv(session, table: str, location: str) -> None:
-    """Append one CSV file into an existing table, matching by header name."""
-    session.sql(f"""
+def copy_csv(session, table: str, location: str) -> list:
+    """Append one CSV file into an existing table, matching by header name.
+    Returns the COPY result rows (per file: rows_parsed / rows_loaded / errors_seen)."""
+    return session.sql(f"""
         COPY INTO {SCHEMA}.{table}
         FROM '{location}'
         FILE_FORMAT = (FORMAT_NAME = '{CSV_FORMAT}')
@@ -111,8 +112,8 @@ def create_geojson_table(session, table: str) -> None:
     """).collect()
 
 
-def copy_geojson(session, table: str, location: str) -> None:
-    session.sql(f"""
+def copy_geojson(session, table: str, location: str) -> list:
+    return session.sql(f"""
         COPY INTO {SCHEMA}.{table} (RAW, _FILENAME, _LOAD_TS)
         FROM (
             SELECT $1, METADATA$FILENAME, METADATA$START_SCAN_TIME
@@ -122,15 +123,25 @@ def copy_geojson(session, table: str, location: str) -> None:
     """).collect()
 
 
+def report_copy(results: list) -> None:
+    """Print the per-file outcome of a COPY (rows loaded + any skipped rows).
+    The COPY result itself is the source of truth here — more reliable than VALIDATE,
+    which does not support MATCH_BY_COLUMN_NAME loads."""
+    for r in results:
+        row = {k.lower(): v for k, v in r.as_dict().items()}
+        if "rows_loaded" in row:                       # a file was processed
+            errors = row.get("errors_seen") or 0
+            fname = str(row.get("file", "")).rsplit("/", 1)[-1]
+            flag = f"   WARNING: {errors} row(s) skipped" if errors else ""
+            print(f"   {fname}: {row['rows_loaded']:,} rows loaded{flag}")
+        else:                                          # e.g. "0 files processed"
+            print(f"   {row.get('status', r)}")
+
+
 def verify(session, table: str) -> None:
-    """Print row count and flag any rows skipped by ON_ERROR = CONTINUE."""
+    """Print the final total row count for the table."""
     rows = session.sql(f"SELECT COUNT(*) FROM {SCHEMA}.{table}").collect()[0][0]
-    print(f"   {table}: {rows:,} rows")
-    skipped = session.sql(
-        f"SELECT COUNT(*) FROM TABLE(VALIDATE({SCHEMA}.{table}, JOB_ID => '_last'))"
-    ).collect()[0][0]
-    if skipped:
-        print(f"   WARNING: {skipped} row(s) skipped on load — inspect VALIDATE({table}).")
+    print(f"   {table}: total {rows:,} rows")
 
 
 # ------------------------------------------------------------
@@ -145,11 +156,11 @@ def run(session, datasets=DATASETS, cities=CITIES) -> None:
         if fmt == "csv":
             create_csv_table(session, table, locations[0])  # infer once from first city
             for loc in locations:
-                copy_csv(session, table, loc)
+                report_copy(copy_csv(session, table, loc))
         elif fmt == "geojson":
             create_geojson_table(session, table)
             for loc in locations:
-                copy_geojson(session, table, loc)
+                report_copy(copy_geojson(session, table, loc))
         else:
             raise ValueError(f"Unknown format '{fmt}' for dataset '{table}'")
 

@@ -68,7 +68,7 @@ airbnb-investment-app/
 │
 ├── etl/                 # the pipeline, by layer (Bronze EXISTS)
 │   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
-│   ├── load_bronze.py         # generic loader, driven by the manifest
+│   ├── 02_bronze_load.py         # generic loader, driven by the manifest
 │   ├── silver/ (later)        # cleaning / typing
 │   └── gold/   (later)        # features / scoring
 │

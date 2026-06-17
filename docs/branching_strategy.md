@@ -395,7 +395,7 @@ Added the first version of the data ingestion pipeline.
 
 ## Files changed
 - etl/01_bronze_ddl.sql
-- etl/load_bronze.py
+- etl/02_bronze_load.py
 - config/ingestion_manifest.py
 
 ## Checks completed

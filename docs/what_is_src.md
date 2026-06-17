@@ -43,7 +43,7 @@ function in `etl/`), and every consumer calls the same thing. Fix it once → ev
 
 | Put in a shared module (the kitchen)        | Keep in the notebook (the table)        |
 |---------------------------------------------|-----------------------------------------|
-| Load/COPY logic (`etl/load_bronze.py`)      | Looking at the data (`.show()`, charts) |
+| Load/COPY logic (`etl/02_bronze_load.py`)      | Looking at the data (`.show()`, charts) |
 | Cleaning / typing transforms (SILVER)       | Trying ideas / experimenting            |
 | The investment scoring formula (GOLD)       | Telling the "story" of the analysis     |
 | Session / warehouse / stage config          | One-off checks                          |
@@ -58,7 +58,7 @@ Our pipeline flows **Bronze → Silver → Gold → Analysis → App**, all insi
 
 | Stage | Where it runs | Shared module it uses | Example |
 |-------|---------------|-----------------------|---------|
-| **1. Ingestion (Bronze)** | `etl/01_bronze_ddl.sql` + `etl/load_bronze.py` | `config/ingestion_manifest.py` | `run(session)` loads every file/city |
+| **1. Ingestion (Bronze)** | `etl/01_bronze_ddl.sql` + `etl/02_bronze_load.py` | `config/ingestion_manifest.py` | `run(session)` loads every file/city |
 | **2. Cleaning (Silver)**  | `etl/silver/` *(later)* | shared transforms | cast `price`, dedupe, type dates |
 | **3. Features (Gold)**    | `etl/gold/` *(later)*   | shared transforms | area summaries, investment score |
 | **4. Analysis**           | `notebooks/`            | reads GOLD schema     | price/location insights |
@@ -102,7 +102,7 @@ except it centralises the **session, warehouse, and stage path**, not local file
 
 Because the code runs inside Snowflake, there is **no virtual env and no `pip install -e .`**.
 Files in `etl/` and `setup/` import from `config/` using a small project-root bootstrap (see the
-top of `etl/load_bronze.py` and `setup/run_setup.py`):
+top of `etl/02_bronze_load.py` and `setup/run_setup.py`):
 
 ```python
 # walk up until we find the config/ folder, then add the root to sys.path

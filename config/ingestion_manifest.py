@@ -3,7 +3,7 @@
 # ------------------------------------------------------------
 # Adding a new file to ingest  = add one dict to DATASETS.
 # Adding a new city            = add one string to CITIES.
-# The "how" (infer/copy logic) lives in etl/load_bronze.py.
+# The "how" (infer/copy logic) lives in etl/02_bronze_load.py.
 # ============================================================
 
 # Cities to ingest. Each must have its files uploaded to
