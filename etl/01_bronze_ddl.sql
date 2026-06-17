@@ -48,3 +48,28 @@ CREATE STAGE IF NOT EXISTS BRONZE.RAW_STAGE
 --     02_bronze_load.py points at @BRONZE.RAW_STAGE today; swapping to
 --     an S3 external stage is a one-line change there.
 --------------------------------------------------------
+
+--------------------------------------------------------
+-- 3. LOAD AUDIT  —  durable record of every COPY.
+--     One row per file per load: rows parsed/loaded and (critically)
+--     ERRORS_SEEN, so rows silently skipped by ON_ERROR = CONTINUE
+--     leave a queryable trace instead of vanishing with the notebook.
+--     IF NOT EXISTS (not OR REPLACE) so audit HISTORY accumulates across
+--     runs — unlike the RAW_* tables, which are rebuilt each load.
+--
+--     Inspect after a run:
+--       SELECT * FROM BRONZE.LOAD_AUDIT WHERE ERRORS_SEEN > 0 ORDER BY LOAD_TS DESC;
+--------------------------------------------------------
+CREATE TABLE IF NOT EXISTS BRONZE.LOAD_AUDIT (
+    AUDIT_ID         NUMBER AUTOINCREMENT START 1 INCREMENT 1,
+    TABLE_NAME       STRING,          -- target RAW_* table
+    FILE_NAME        STRING,          -- source file on the stage
+    STATUS           STRING,          -- COPY status (e.g. LOADED / PARTIALLY_LOADED)
+    ROWS_PARSED      NUMBER,          -- rows the parser saw
+    ROWS_LOADED      NUMBER,          -- rows that actually landed
+    ERRORS_SEEN      NUMBER,          -- rows skipped (the silent-loss counter)
+    FIRST_ERROR      STRING,          -- first failure message, if any
+    FIRST_ERROR_LINE NUMBER,          -- file line of the first failure
+    LOAD_TS          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+)
+COMMENT = 'Per-file COPY outcome for every Bronze load; history accumulates.';

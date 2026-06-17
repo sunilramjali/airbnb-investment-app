@@ -52,16 +52,27 @@ def stage_path(city: str, file: str) -> str:
 
 
 # ------------------------------------------------------------
-# CSV path: infer schema from the FIRST city, then COPY-append
-# every city into the same table. All columns land as TEXT — that
-# is intentional for Bronze; casting happens in SILVER.
+# CSV path: use INFER_SCHEMA only to DISCOVER column NAMES from the
+# FIRST city, but FORCE every column to TEXT. This keeps Bronze
+# faithful and deterministic:
+#   - nothing can fail to load (every value is valid as a string),
+#   - the schema does not depend on sampled values (e.g. "$1,250.00"
+#     prices no longer flip a column to NUMBER vs TEXT by accident),
+#   - a new city / monthly snapshot can't break the load via drift.
+# Real typing/casting happens explicitly in SILVER (TRY_CAST), where a
+# failed cast becomes a NULL we can count — not a row that vanishes.
 # ------------------------------------------------------------
 def create_csv_table(session, table: str, sample_location: str) -> None:
-    """Create the table shell from an inferred schema, plus audit columns."""
+    """Create the table shell with all-TEXT columns (names discovered via
+    INFER_SCHEMA, types overridden to TEXT), plus audit columns."""
     session.sql(f"""
         CREATE OR REPLACE TABLE {SCHEMA}.{table}
         USING TEMPLATE (
-            SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*))
+            SELECT ARRAY_AGG(OBJECT_CONSTRUCT(
+                       'COLUMN_NAME', COLUMN_NAME,
+                       'TYPE',        'TEXT',   -- override INFER_SCHEMA's guess
+                       'NULLABLE',    TRUE
+                   ))
             WITHIN GROUP (ORDER BY ORDER_ID)
             FROM TABLE(
                 INFER_SCHEMA(
@@ -138,6 +149,35 @@ def report_copy(results: list) -> None:
             print(f"   {row.get('status', r)}")
 
 
+def record_audit(session, table: str, results: list) -> None:
+    """Persist each COPY result row into BRONZE.LOAD_AUDIT so rows skipped by
+    ON_ERROR = CONTINUE (errors_seen) leave a durable, queryable trace instead
+    of disappearing when the notebook closes. Bind params are used so error
+    text containing quotes can't break the INSERT. Created by 01_bronze_ddl.sql."""
+    for r in results:
+        row = {k.lower(): v for k, v in r.as_dict().items()}
+        if "rows_loaded" not in row:          # non-file status row (e.g. "0 files processed")
+            continue
+        session.sql(
+            f"""
+            INSERT INTO {SCHEMA}.LOAD_AUDIT
+                (TABLE_NAME, FILE_NAME, STATUS, ROWS_PARSED, ROWS_LOADED,
+                 ERRORS_SEEN, FIRST_ERROR, FIRST_ERROR_LINE)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            params=[
+                table,
+                str(row.get("file", "")),
+                row.get("status"),
+                row.get("rows_parsed"),
+                row.get("rows_loaded"),
+                row.get("errors_seen") or 0,
+                row.get("first_error"),
+                row.get("first_error_line"),
+            ],
+        ).collect()
+
+
 def verify(session, table: str) -> None:
     """Print the final total row count for the table."""
     rows = session.sql(f"SELECT COUNT(*) FROM {SCHEMA}.{table}").collect()[0][0]
@@ -156,11 +196,15 @@ def run(session, datasets=DATASETS, cities=CITIES) -> None:
         if fmt == "csv":
             create_csv_table(session, table, locations[0])  # infer once from first city
             for loc in locations:
-                report_copy(copy_csv(session, table, loc))
+                results = copy_csv(session, table, loc)
+                report_copy(results)
+                record_audit(session, table, results)
         elif fmt == "geojson":
             create_geojson_table(session, table)
             for loc in locations:
-                report_copy(copy_geojson(session, table, loc))
+                results = copy_geojson(session, table, loc)
+                report_copy(results)
+                record_audit(session, table, results)
         else:
             raise ValueError(f"Unknown format '{fmt}' for dataset '{table}'")
 
