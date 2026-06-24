@@ -20,44 +20,36 @@ This project follows a simple Medallion data pipeline structure based on the **B
 
 The purpose of this structure is to keep the project organised, easy to understand, and easy for the team to collaborate on.
 
+> **Runtime:** this project runs **inside Snowflake** (Snowpark `get_active_session()`),
+> so the data lives in Snowflake **tables/stages**, not in a local `data/` folder. See the
+> README "Where This Runs" section. The `data/bronze|silver|gold` examples below describe the
+> medallion *concept*; in practice each layer is a Snowflake schema (BRONZE / SILVER / GOLD).
+
 Current project structure:
 
 ```text
 airbnb-investment-app/
-├── CHEATSHEET.md
 ├── README.md
 ├── config/
-│   ├── __init__.py/
-│   ├── run_sql_file.py/
-│   └── snowflake_context.py/
-|── notebooks/
-|   └── preprocessing_layer.ipynb
+│   ├── __init__.py
+│   ├── snowflake_context.py       # session + warehouse helpers
+│   ├── run_sql_file.py            # client-side SQL runner
+│   └── ingestion_manifest.py      # declarative list of Bronze datasets to load
 ├── setup/
-│   ├── run_setup.py/
-│   ├── 00_setup_api_integration.sql/
-│   └── 01_setup_database_and_warehouse.sql/
+│   ├── run_setup.py
+│   ├── 00_setup_api_integration.sql
+│   └── 01_setup_database_and_warehouse.sql
+├── etl/
+│   ├── 01_bronze_ddl.sql          # file formats + RAW_STAGE (run once)
+│   └── 02_bronze_load.py             # generic loader, driven by the manifest
+├── notebooks/
+│   └── preprocessing_layer.ipynb
+└── docs/
 ```
 
 ---
 
 ## What each folder is for
-
-### `CHEATSHEET.md`
-
-This file contains quick copy-and-paste commands for the team.
-
-Use this file when you need commands for:
-
-* setting up the project
-* activating the virtual environment
-* installing requirements
-* running notebooks
-* using Git
-* pulling and pushing changes
-
-The cheat sheet is for quick daily use.
-
----
 
 ### `README.md`
 
@@ -319,6 +311,11 @@ __pycache__/
 
 ---
 
+> **Snowflake-native note:** this project runs **inside Snowflake**, so there is normally **no
+> `.venv` and no `requirements.txt`** — Snowflake provides the Python environment and the
+> session. The guidance below applies only if you choose to run the code **outside** Snowflake
+> (local laptop, CI, Airflow). See the README "Where This Runs" section.
+
 ### `.venv/`
 
 The `.venv` folder is your local Python virtual environment.
@@ -489,17 +486,19 @@ This ignores raw and temporary Parquet files while still allowing the team to co
 These folders should usually be committed to GitHub:
 
 ```text
+config/        # shared helpers (session, SQL runner, ingestion manifest)
+setup/         # one-time DB/warehouse/integration setup
+etl/           # the pipeline (Bronze loader today; Silver/Gold later)
 notebooks/
-src/
 docs/
-app/
-tests/
-requirements.txt
+app/           # (later)
+tests/         # (later)
 README.md
 .gitignore
 ```
 
-These contain the important project work: code, documentation, notebooks, tests, and setup files.
+These contain the important project work: code, documentation, notebooks, and setup files.
+(No `requirements.txt` in the Snowflake-native path — see the note above.)
 
 ---
 
@@ -521,12 +520,12 @@ These are local, private, temporary, or generated files.
 
 ## Suggested workflow for the team
 
-1. Keep source code in `src/`
+1. Keep shared helpers in `config/`, pipeline code in `etl/`
 2. Keep notebooks in `notebooks/`
 3. Keep documentation in `docs/`
-4. Keep raw downloaded data in `data/bronze/`
-5. Keep temporary processed data in `data/silver/`
-6. Keep final selected outputs in `data/gold/`
+4. Load raw data into the `BRONZE` schema (Snowflake), not a local folder
+5. Write cleaned data to the `SILVER` schema
+6. Write final app-ready data to the `GOLD` schema
 7. Do not commit API keys, passwords, or virtual environments
 8. Use branches for separate work
 9. Merge work into `main` using pull requests
@@ -565,96 +564,4 @@ The main rule is:
 
 > Commit files that help the team understand, run, and improve the project. Ignore files that are private, temporary, large, or automatically generated.
 
-For this Airbnb Investment App, the most important files to commit are the app code, notebooks, documentation, requirements file, README, and `.gitignore`.
-
-
-------------------------------------------------------------------------------
-
-
-# Team Cheat Sheet
-
-This project includes a separate Markdown file called:
-
-```text
-CHEATSHEET.md
-```
-
-The cheat sheet is designed to help team members quickly copy and paste the most common commands needed to run and work on the project.
-
-Instead of searching through the full README every time, team members can open `CHEATSHEET.md` and find the essential commands for:
-
-* cloning the repository
-* creating and activating the virtual environment
-* installing requirements
-* running notebooks
-* running the Streamlit app
-* using Git branches
-* pulling the latest changes
-* committing work
-* pushing work to GitHub
-
-
-## When to use the cheat sheet
-
-Use `CHEATSHEET.md` when you just need a quick command to copy and paste.
-
-For example:
-
-```bash
-git pull origin main
-```
-
-```bash
-source .venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
-```
-
-```bash
-streamlit run app/main.py
-```
-
-## Important
-
-The cheat sheet should only contain commands that are safe and useful for the team.
-
-Avoid adding commands that could accidentally delete work, reset branches, remove files, or overwrite someone else’s changes unless they are clearly explained.
-
-For example, be careful with commands such as:
-
-```bash
-git reset --hard
-```
-
-```bash
-git clean -fd
-```
-
-```bash
-rm -rf
-```
-
-These commands can permanently remove local changes or files if used incorrectly.
-
-## Recommended file structure
-
-```text
-airbnb-investment-app/
-├── README.md
-├── CHEATSHEET.md
-├── requirements.txt
-├── .gitignore
-├── notebooks/
-├── src/
-├── app/
-├── data/
-└── docs/
-```
-
-## Summary
-
-The cheat sheet is the quick copy-and-paste command guide.
-
-Both files should be kept updated as the project changes.
+For this Airbnb Investment App, the most important files to commit are the pipeline code (`config/`, `setup/`, `etl/`), notebooks, documentation, README, and `.gitignore`.
