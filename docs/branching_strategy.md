@@ -394,8 +394,8 @@ Data Engineer
 Added the first version of the data ingestion pipeline.
 
 ## Files changed
-- etl/01_bronze_ddl.sql
-- etl/02_bronze_load.py
+- etl/ingestion_layer/01_bronze_ddl.sql
+- etl/ingestion_layer/02_bronze_load.py
 - config/ingestion_manifest.py
 
 ## Checks completed
