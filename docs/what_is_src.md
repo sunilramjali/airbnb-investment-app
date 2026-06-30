@@ -1,9 +1,17 @@
-# What is the `src/` Folder?
+# Where Reusable Logic Lives (the `src/` idea, Snowflake-native)
 
 ## In one sentence
 
-`src/` is where we keep our **reusable Python code** — the functions that actually *do the
-work* — so that every notebook and the app can share the same code instead of copy-pasting it.
+Reusable logic — the code that actually *does the work* — lives in **shared Python modules**
+so that every notebook and the app call the same code instead of copy-pasting it. The classic
+name for that folder is `src/`. **In this project that role is filled by `config/` (shared
+helpers) and `etl/` (the pipeline)**, and the work is executed through **Snowpark + SQL inside
+Snowflake**, not local pandas.
+
+> Why not a literal `src/`? Because we don't run pandas on a laptop reading `data/*.csv`.
+> We run inside Snowflake: a Snowpark `session` sends SQL/Snowpark to the warehouse, and data
+> lives in the BRONZE / SILVER / GOLD **schemas**. The *principle* below is identical; only the
+> mechanics differ.
 
 ---
 
@@ -11,121 +19,100 @@ work* — so that every notebook and the app can share the same code instead of 
 
 Imagine a restaurant:
 
-- **`src/` is the kitchen** — this is where the food (the real logic) gets cooked.
-- **Notebooks and the app are the dining tables** — they don't cook, they just *order* from
-  the kitchen and serve the result.
+- **Shared modules (`config/`, `etl/`) are the kitchen** — where the real logic gets cooked.
+- **Notebooks and the app are the dining tables** — they don't cook, they *order* from the
+  kitchen and serve the result.
 
 If every table cooked its own food, you'd have 10 slightly different versions of the same
 dish. With one kitchen, everyone gets the *same* dish, made the *same* way, every time.
 
-That's `src/`: write the logic **once**, use it **everywhere**.
+Write the logic **once**, use it **everywhere**.
 
 ---
 
-## Why bother? The problem it solves
+## The problem it solves
 
-Without `src/`, the same code gets copy-pasted into many notebooks:
-
-```python
-# notebook 1
-listings['price'] = listings['price'].str.replace('$','').astype(float)
-# notebook 2 (someone pasted the same line...)
-# notebook 3 (...and again)
-```
-
-When the data changes, you must fix it in **every** notebook — and you *will* miss one.
-
-With `src/`, the logic lives in one place:
-
-```python
-# src/cleaning.py
-def clean_listings(df):
-    df['price'] = df['price'].str.replace('$','').astype(float)
-    return df
-```
-
-and every notebook just *calls* it:
-
-```python
-from src.cleaning import clean_listings
-listings = clean_listings(listings)
-```
-
-Fix it once → everyone gets the fix. ✅
+Without shared modules, the same logic gets copy-pasted across notebooks and breaks the moment
+the data changes — and you *will* miss a copy. For example, a price-cleaning step repeated by
+hand in three notebooks. Instead, it lives once as a SILVER transform (a SQL file or a Snowpark
+function in `etl/`), and every consumer calls the same thing. Fix it once → everyone gets the fix. ✅
 
 ---
 
-## What goes in `src/` vs what stays in a notebook?
+## What goes in a shared module vs what stays in a notebook?
 
-| Put in `src/` (the kitchen)        | Keep in the notebook (the table)        |
-|------------------------------------|-----------------------------------------|
-| Cleaning/transform functions        | Looking at the data (`.head()`, charts) |
-| The investment scoring formula      | Trying ideas / experimenting            |
-| File paths (in `config.py`)         | Telling the "story" of the analysis     |
-| Loading & saving data               | One-off checks                          |
+| Put in a shared module (the kitchen)        | Keep in the notebook (the table)        |
+|---------------------------------------------|-----------------------------------------|
+| Load/COPY logic (`etl/ingestion_layer/02_bronze_load.py`)      | Looking at the data (`.show()`, charts) |
+| Cleaning / typing transforms (SILVER)       | Trying ideas / experimenting            |
+| The investment scoring formula (GOLD)       | Telling the "story" of the analysis     |
+| Session / warehouse / stage config          | One-off checks                          |
 
-**Rule of thumb:** if you'd copy-paste it into a second notebook, it belongs in `src/`.
-
----
-
-## How `src/` is used at each stage of our project
-
-Our pipeline flows **Bronze → Silver → Gold → Analysis → App**. `src/` helps at every stage:
-
-| Stage | Notebook folder | `src/` file it calls | Example |
-|-------|-----------------|----------------------|---------|
-| **1. Ingestion (bronze)** | `01_bronze_ingestion/` | `src/ingestion.py` | `load_bronze("listings")` |
-| **2. Cleaning (silver)**  | `02_silver_cleaning/`  | `src/cleaning.py`   | `clean_listings(df)` |
-| **3. Features (gold)**    | `03_gold_features/`    | `src/features.py`   | `area_summary(df)` |
-| **4. Analysis**           | `04_analysis/`         | `src/features.py`   | `investment_score(df)` |
-| **5. Modelling**          | `05_modelling/`        | `src/modelling.py`  | `review_sentiment(text)` |
-| **6. The App**            | `app/main.py`          | all of the above    | shows results to users |
-
-The big win: the **same** `investment_score()` function is used by the analyst's notebook,
-the QA tests, **and** the Streamlit app — so they can never disagree.
+**Rule of thumb:** if you'd copy-paste it into a second notebook, it belongs in a shared module.
 
 ---
 
-## One shared file you'll use constantly: `config.py`
+## How it maps to our pipeline
 
-Instead of writing file paths by hand (which break when you move a notebook into a folder):
+Our pipeline flows **Bronze → Silver → Gold → Analysis → App**, all inside Snowflake:
+
+| Stage | Where it runs | Shared module it uses | Example |
+|-------|---------------|-----------------------|---------|
+| **1. Ingestion (Bronze)** | `etl/ingestion_layer/01_bronze_ddl.sql` + `etl/02_bronze_load.py` | `config/ingestion_manifest.py` | `run(session)` loads every file/city |
+| **2. Cleaning (Silver)**  | `etl/silver/` *(later)* | shared transforms | cast `price`, dedupe, type dates |
+| **3. Features (Gold)**    | `etl/gold/` *(later)*   | shared transforms | area summaries, investment score |
+| **4. Analysis**           | `notebooks/`            | reads GOLD schema     | price/location insights |
+| **5. Modelling**          | `notebooks/` *(later)*  | model code            | review sentiment |
+| **6. The App**            | `app/main.py` *(later)* | reads GOLD schema only | shows results to users |
+
+The win: the **same** scoring logic powers the analyst's notebook, the QA checks, **and** the
+Streamlit app — so they can never disagree.
+
+---
+
+## The shared helper you'll use constantly: `config/snowflake_context.py`
+
+Instead of repeating connection/warehouse boilerplate in every file, it lives in one place:
 
 ```python
-# ❌ fragile
-listings = pd.read_csv('../data/bronze/listings.csv')
+# config/snowflake_context.py  (already in the repo)
+from snowflake.snowpark.context import get_active_session
+
+WAREHOUSES = {"dev": "AIRBNB_DEV_WH", "query": "AIRBNB_APP_WH"}
+
+def get_session(warehouse="dev"):
+    session = get_active_session()                 # Snowflake provides the session
+    session.sql(f"USE WAREHOUSE {WAREHOUSES[warehouse]}").collect()
+    return session
 ```
 
-we keep paths in one place:
+and every file just calls it:
 
 ```python
-# src/config.py
-from pathlib import Path
-ROOT = Path(__file__).resolve().parents[1]
-BRONZE_DIR = ROOT / "data" / "bronze"
-SILVER_DIR = ROOT / "data" / "silver"
-GOLD_DIR   = ROOT / "data" / "gold"
+from config.snowflake_context import get_session
+session = get_session("dev")        # works from notebooks, etl/, setup/
 ```
 
-and use it like:
-
-```python
-# ✅ works from ANY notebook, any folder
-from src.config import BRONZE_DIR
-listings = pd.read_csv(BRONZE_DIR / "listings.csv")
-```
+This is the Snowflake-native equivalent of the old `src/config.py` "paths in one place" idea —
+except it centralises the **session, warehouse, and stage path**, not local file paths.
 
 ---
 
-## How to use `src/` (one-time setup)
+## How imports work (no `pip install -e .`)
 
-From the project root, run this once after activating your virtual environment:
+Because the code runs inside Snowflake, there is **no virtual env and no `pip install -e .`**.
+Files in `etl/` and `setup/` import from `config/` using a small project-root bootstrap (see the
+top of `etl/ingestion_layer/02_bronze_load.py` and `setup/run_setup.py`):
 
-```bash
-pip install -e .
+```python
+# walk up until we find the config/ folder, then add the root to sys.path
+PROJECT_ROOT = find_project_root("config")
+sys.path.insert(0, str(PROJECT_ROOT))
+from config.snowflake_context import get_session
 ```
 
-This makes `src` importable from anywhere, so `from src.cleaning import clean_listings`
-just works — in notebooks, the app, and tests. You only do this once per machine.
+That makes `from config... import ...` work from any folder, no install step required.
 
----
-
+> **Outside Snowflake?** If you ever run this locally (not the supported path), *then* you'd use
+> a virtual env + `requirements.txt` and swap `get_active_session()` for `Session.builder`.
+> See the README "Where This Runs" section.
