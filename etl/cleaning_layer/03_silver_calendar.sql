@@ -15,9 +15,9 @@
 --   * Keep _FILENAME / _LOAD_TS lineage.
 --
 -- NOTE: this source's price / adjusted_price columns are the literal
--- string "None" for every row (no pricing in this scrape), so they
--- are intentionally NOT carried into silver. Use LISTINGS_CLEANED.PRICE
--- for nightly rate instead.
+-- string "None" for every row (no pricing in this scrape). They are
+-- carried for completeness but parse to all-NULL; use
+-- LISTINGS_CLEANED.PRICE for nightly rate instead.
 --
 -- NOTE: bronze columns are case-sensitive lowercase identifiers
 -- (PARSE_HEADER load) and MUST be double-quoted ("date").
@@ -41,8 +41,13 @@ WITH typed AS (
         TRY_CAST("minimum_nights" AS NUMBER(10,0))                                    AS minimum_nights,
         TRY_CAST("maximum_nights" AS NUMBER(10,0))                                    AS maximum_nights,
 
+        -- ---- money: "$1,250.00" -> 1250.00 (all "None" in this scrape -> NULL) ----
+        TRY_CAST(REPLACE(REPLACE("price", '$', ''), ',', '') AS NUMBER(12,2))         AS price,
+        TRY_CAST(REPLACE(REPLACE("adjusted_price", '$', ''), ',', '') AS NUMBER(12,2)) AS adjusted_price,
+
         -- ---- lineage (carried from bronze) ----
         _FILENAME,
+        _FILE_ROW_NUMBER,
         _LOAD_TS
     FROM BRONZE.RAW_CALENDAR
 )

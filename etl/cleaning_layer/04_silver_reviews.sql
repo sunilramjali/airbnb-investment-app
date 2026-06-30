@@ -39,6 +39,7 @@ WITH typed AS (
 
         -- ---- lineage (carried from bronze) ----
         _FILENAME,
+        _FILE_ROW_NUMBER,
         _LOAD_TS
     FROM BRONZE.RAW_REVIEWS
 )
