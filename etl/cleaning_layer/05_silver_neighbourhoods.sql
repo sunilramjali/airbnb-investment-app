@@ -14,8 +14,9 @@
 --   * Keep _FILENAME / _LOAD_TS lineage.
 --
 -- NOTE: source "neighbourhood_group" is the literal string "None"
--- for every row (London groups all boroughs flat), so it carries
--- no information and is intentionally NOT carried into silver.
+-- for some cities (e.g. London groups boroughs flat) but carries a
+-- real value for others, so it IS carried into silver with 'None'
+-- normalised to NULL.
 --
 -- NOTE: bronze columns are case-sensitive lowercase identifiers
 -- (PARSE_HEADER load) and MUST be double-quoted ("neighbourhood").
@@ -30,8 +31,12 @@ WITH typed AS (
         -- ---- borough name (grain) ----
         NULLIF(TRIM("neighbourhood"), '')   AS neighbourhood,
 
+        -- ---- borough group ('None' literal -> NULL) ----
+        NULLIF(NULLIF(TRIM("neighbourhood_group"), ''), 'None')   AS neighbourhood_group,
+
         -- ---- lineage (carried from bronze) ----
         _FILENAME,
+        _FILE_ROW_NUMBER,
         _LOAD_TS
     FROM BRONZE.RAW_NEIGHBOURHOODS
 )

@@ -18,9 +18,9 @@
 --   * Deduplicate to one row per neighbourhood; latest load wins.
 --   * Keep _FILENAME / _LOAD_TS lineage.
 --
--- NOTE: feature "neighbourhood_group" is null for every borough
--- (London groups all boroughs flat), so it is intentionally NOT
--- carried into silver.
+-- NOTE: feature "neighbourhood_group" is null/"None" for some cities
+-- (e.g. London groups boroughs flat) but carries a real value for
+-- others, so it IS carried into silver with 'None' normalised to NULL.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
@@ -31,6 +31,9 @@ WITH flattened AS (
     SELECT
         -- ---- borough name (grain) ----
         NULLIF(TRIM(f.value:properties:neighbourhood::string), '')   AS neighbourhood,
+
+        -- ---- borough group ('None' literal -> NULL) ----
+        NULLIF(NULLIF(TRIM(f.value:properties:neighbourhood_group::string), ''), 'None') AS neighbourhood_group,
 
         -- ---- geometry as native GEOGRAPHY (MultiPolygon boundary) ----
         TO_GEOGRAPHY(f.value:geometry)                               AS boundary,
