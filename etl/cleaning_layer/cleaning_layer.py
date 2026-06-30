@@ -50,7 +50,7 @@ from config.snowflake_context import get_session
 from config.run_sql_file import run_sql_file
 
 # Folder holding this layer's SQL files.
-SQL_DIR = PROJECT_ROOT / "etl" / "preprocessing_layer"
+SQL_DIR = PROJECT_ROOT / "etl" / "cleaning_layer"
 
 # DDL run once per invocation (idempotent: schema + audit table).
 DDL_FILE = SQL_DIR / "01_silver_ddl.sql"
