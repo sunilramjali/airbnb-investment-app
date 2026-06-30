@@ -1,5 +1,6 @@
+# Shared Snowflake session/context helpers for the Airbnb investment project.
+# Co-authored with CoCo
 # import packages
-import sys # interact with the Python runtime environment
 from pathlib import Path 
 from snowflake.snowpark.context import get_active_session # access current connection
 
@@ -19,28 +20,28 @@ WAREHOUSES = {
 WORKSPACE_NAME = "airbnb-investment-app"
 DATABASE = "AIRBNB_INVESTMENT_DB"   # every layer lives in this database
 
-# function 1
-def add_project_root_to_path():
+def get_session(warehouse = "dev", set_context = True):
     """
-    Allows Python files inside folders like setup/ to import from config/.
-    """
-    # check whether the project root is already in Python's import search path
-    if str(PROJECT_ROOT) not in sys.path:
-        sys.path.append(str(PROJECT_ROOT)) # add teh main project folder to Python's import search path
+    Gets the active Snowflake session and (optionally) sets the warehouse + database.
 
-# function 2
-def get_session(warehouse = "dev"):
+    set_context=False returns a bare session WITHOUT issuing USE WAREHOUSE / USE DATABASE.
+    Use this to bootstrap a fresh account, where those objects do not exist yet and are
+    created by the setup SQL itself (CREATE WAREHOUSE / CREATE DATABASE are metadata DDL
+    and do not require an active warehouse).
     """
-    Gets the active Snowflake session and sets the correct warehouse.
-    """
+    # get an active Snowflake session
+    session = get_active_session()
+
+    # bootstrap path: no context yet (objects may not exist)
+    if not set_context:
+        return session
+
     # Error handling when the warehouse is not in dictionary
     if warehouse not in WAREHOUSES:
         raise ValueError(
             f"Unknown warehouse '{warehouse}'. Choose from: {list(WAREHOUSES.keys())}"
         )
-        
-    # get an active Snowflake session
-    session = get_active_session()
+
     # look warehouses in the dictionary
     warehouse_name = WAREHOUSES[warehouse]
     # direct Snowflake to choose warehouse

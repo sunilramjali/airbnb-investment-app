@@ -1,51 +1,11 @@
-# Branches and File/Folder Naming Conventions
+# Git: What to Commit vs Ignore
 
-branches = hyphens
-folders/files = underscores
+This guide explains which files should be committed to GitHub and which should be ignored via
+`.gitignore` for the Airbnb Investment App.
 
-Branch:
-role/data-engineer/feature/data-ingestion
-
-Folder:
-setup/run_setup.py
-
-
-----------------------------------------------------------
-
-
-
-# Project Architecture Guide
-
-This project follows a simple Medallion data pipeline structure based on the **Bronze → Silver → Gold** architecture.
-
-The purpose of this structure is to keep the project organised, easy to understand, and easy for the team to collaborate on.
-
-> **Runtime:** this project runs **inside Snowflake** (Snowpark `get_active_session()`),
-> so the data lives in Snowflake **tables/stages**, not in a local `data/` folder. See the
-> README "Where This Runs" section. The `data/bronze|silver|gold` examples below describe the
-> medallion *concept*; in practice each layer is a Snowflake schema (BRONZE / SILVER / GOLD).
-
-Current project structure:
-
-```text
-airbnb-investment-app/
-├── README.md
-├── config/
-│   ├── __init__.py
-│   ├── snowflake_context.py       # session + warehouse helpers
-│   ├── run_sql_file.py            # client-side SQL runner
-│   └── ingestion_manifest.py      # declarative list of Bronze datasets to load
-├── setup/
-│   ├── run_setup.py
-│   ├── 00_setup_api_integration.sql
-│   └── 01_setup_database_and_warehouse.sql
-├── etl/
-│   ├── 01_bronze_ddl.sql          # file formats + RAW_STAGE (run once)
-│   └── 02_bronze_load.py             # generic loader, driven by the manifest
-├── notebooks/
-│   └── preprocessing_layer.ipynb
-└── docs/
-```
+For the project structure and the Bronze → Silver → Gold pipeline, see
+[architecture.md](architecture.md). For naming conventions and how to run the pipeline, see the
+[README](../README.md).
 
 ---
 

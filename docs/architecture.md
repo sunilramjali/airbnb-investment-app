@@ -76,8 +76,8 @@ airbnb-investment-app/
 │   │   └── 02_silver_*.sql ...    # one cleaning transform per bronze table
 │   └── gold/   (later)        # features / scoring
 │
-├── notebooks/           # exploration + running the pipeline
-│   └── preprocessing_layer.ipynb
+├── notebooks/ (later)  # exploration + running the pipeline
+│   └── preprocessing_layer.ipynb  (planned)
 │
 ├── app/  (later)        # Streamlit app (reads GOLD schema only)
 ├── tests/ (later)       # validation of data & loader behaviour

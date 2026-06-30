@@ -1,3 +1,5 @@
+# Bronze loader: ingests every dataset for every city from the S3 external stage into BRONZE.
+# Co-authored with CoCo
 # ============================================================
 # BRONZE LOADER  —  the generic "how" of ingestion.
 # ------------------------------------------------------------
@@ -5,13 +7,18 @@
 # every city into the BRONZE schema, faithfully (no cleaning).
 #
 # PREREQUISITES (run once, in this order):
-#   1) etl/01_bronze_ddl.sql  -> creates file formats + RAW_STAGE.
-#   2) Upload each city's files to @BRONZE.RAW_STAGE/<city>/.
+#   1) etl/ingestion_layer/01_bronze_ddl.sql  -> creates file formats + S3 integration + RAW_STAGE.
+#   2) A Lambda uploads each city's snapshot to
+#        s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/<city>/snapshot_date=<YYYY-MM-DD>/<dataset>/<file>.
 # Then run this file.
 #
-# Lineage is captured per row via _FILENAME (path encodes the city),
-# _FILE_ROW_NUMBER, and _LOAD_TS. City is therefore a runtime parameter,
-# not a hardcoded value.
+# The dated snapshot folder changes every quarter as new data lands, so the
+# loader resolves the LATEST snapshot per city at runtime (see latest_snapshot)
+# rather than hardcoding a date.
+#
+# Lineage is captured per row via _FILENAME (path encodes city + snapshot),
+# _FILE_ROW_NUMBER, and _LOAD_TS. City and snapshot are therefore runtime
+# parameters, not hardcoded values.
 # ============================================================
 
 # import packages
@@ -46,9 +53,45 @@ CSV_FORMAT  = "BRONZE.CSV_HDR_FF"
 JSON_FORMAT = "BRONZE.GEOJSON_FF"
 
 
-def stage_path(city: str, file: str) -> str:
-    """Build the stage location for one city's file."""
-    return f"@{SCHEMA}.RAW_STAGE/{city}/{file}"
+SNAPSHOT_PREFIX = "snapshot_date="   # Hive-style partition folder, e.g. snapshot_date=2025-09-14
+
+
+def _is_snapshot_folder(segment: str) -> bool:
+    """True for a Hive-style snapshot folder: 'snapshot_date=YYYY-MM-DD'."""
+    if not segment.startswith(SNAPSHOT_PREFIX):
+        return False
+    d = segment[len(SNAPSHOT_PREFIX):]
+    return (
+        len(d) == 10 and d[4] == "-" and d[7] == "-"
+        and d[:4].isdigit() and d[5:7].isdigit() and d[8:10].isdigit()
+    )
+
+
+def latest_snapshot(session, city: str) -> str:
+    """Return the newest 'snapshot_date=YYYY-MM-DD' folder name under a city.
+
+    The quarterly Lambda adds a new
+    s3://.../inside_airbnb/<city>/snapshot_date=<YYYY-MM-DD>/ folder each load;
+    we LIST the city prefix, collect the snapshot_date= folder segments, and
+    pick the most recent. The constant prefix + ISO date sort lexically, so
+    each city resolves its own newest snapshot independently.
+    """
+    rows = session.sql(f"LIST @{SCHEMA}.RAW_STAGE/{city}/").collect()
+    snaps = set()
+    for r in rows:
+        for seg in str(r["name"]).split("/"):
+            if _is_snapshot_folder(seg):
+                snaps.add(seg)
+    if not snaps:
+        raise FileNotFoundError(
+            f"No 'snapshot_date=YYYY-MM-DD' folder found under {city}/ on RAW_STAGE"
+        )
+    return sorted(snaps)[-1]
+
+
+def stage_path(city: str, snapshot: str, dataset_dir: str, file: str) -> str:
+    """Build the stage location for one file: <city>/<snapshot>/<dataset_dir>/<file>."""
+    return f"@{SCHEMA}.RAW_STAGE/{city}/{snapshot}/{dataset_dir}/{file}"
 
 
 # ------------------------------------------------------------
@@ -188,10 +231,15 @@ def verify(session, table: str) -> None:
 # Orchestration: loop datasets x cities.
 # ------------------------------------------------------------
 def run(session, datasets=DATASETS, cities=CITIES) -> None:
+    # Resolve the latest snapshot folder once per city (logged for traceability).
+    snapshots = {c: latest_snapshot(session, c) for c in cities}
+    for c, snap in snapshots.items():
+        print(f"[snapshot] {c}: loading from {snap}")
+
     for ds in datasets:
-        table, fmt, file = ds["name"], ds["format"], ds["file"]
-        locations = [stage_path(c, file) for c in cities]
-        print(f"[{table}] loading {len(cities)} city/cities from '{file}' ({fmt})")
+        table, fmt, file, ddir = ds["name"], ds["format"], ds["file"], ds["dir"]
+        locations = [stage_path(c, snapshots[c], ddir, file) for c in cities]
+        print(f"[{table}] loading {len(cities)} city/cities from '{ddir}/{file}' ({fmt})")
 
         if fmt == "csv":
             create_csv_table(session, table, locations[0])  # infer once from first city
