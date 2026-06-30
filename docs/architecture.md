@@ -67,13 +67,13 @@ airbnb-investment-app/
 │   └── 01_setup_database_and_warehouse.sql
 │
 ├── etl/                 # the pipeline, by layer (Bronze EXISTS)
-│   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
-│   ├── 02_bronze_load.py         # generic loader, driven by the manifest
-│   ├── silver/ (later)        # cleaning / typing
-│   └── gold/   (later)        # features / scoring
+│   └── ingestion_layer/
+│       ├── 01_bronze_ddl.sql   # file formats + S3 integration + stage (run once)
+│       └── 02_bronze_load.py   # generic loader, driven by the manifest
+│   # silver/ (later)  cleaning / typing  ·  gold/ (later)  features / scoring
 │
-├── notebooks/           # exploration + running the pipeline
-│   └── preprocessing_layer.ipynb
+├── notebooks/ (later)  # exploration + running the pipeline
+│   └── preprocessing_layer.ipynb  (planned)
 │
 ├── app/  (later)        # Streamlit app (reads GOLD schema only)
 ├── tests/ (later)       # validation of data & loader behaviour

@@ -1,14 +1,17 @@
+-- Bronze ingestion DDL: file formats, S3 storage integration + external stage, and load audit.
+-- Co-authored with CoCo
 -- ============================================================
 -- BRONZE INGESTION — DDL (file formats + stage)
 -- ------------------------------------------------------------
--- Run this ONCE to create the reusable file formats and the
--- internal landing stage. The actual per-file / per-city loading
--- lives in etl/02_bronze_load.py (driven by config/ingestion_manifest.py).
+-- Run this ONCE to create the reusable file formats, the S3 storage
+-- integration, and the external landing stage. The actual per-file /
+-- per-city loading lives in etl/ingestion_layer/02_bronze_load.py (driven by
+-- config/ingestion_manifest.py).
 --
 -- FLOW:
---   1) Run this file              -> file formats + RAW_STAGE.
---   2) Upload files to            -> @BRONZE.RAW_STAGE/<city>/.
---   3) Run etl/02_bronze_load.py     -> creates + loads every Bronze table.
+--   1) Run this file              -> file formats + S3 integration + RAW_STAGE.
+--   2) A Lambda uploads files to  -> s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/<city>/snapshot_date=<YYYY-MM-DD>/.
+--   3) Run etl/ingestion_layer/02_bronze_load.py  -> creates + loads every Bronze table.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
@@ -37,16 +40,50 @@ CREATE FILE FORMAT IF NOT EXISTS BRONZE.GEOJSON_FF
     COMMENT = 'JSON parse rules for GeoJSON FeatureCollection files';
 
 --------------------------------------------------------
--- 2. Create stage for raw files (format-neutral stage)
+-- 2. EXTERNAL STAGE (AWS S3)  —  raw files land here.
+--     A Lambda (quarterly, via EventBridge) uploads each new Inside Airbnb
+--     snapshot to:
+--       s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/<city>/snapshot_date=<YYYY-MM-DD>/<dataset>/<file>
+--     e.g. .../london/snapshot_date=2025-09-14/listings/listings.csv.gz
+--     Snowflake reads it through a STORAGE INTEGRATION (no AWS keys stored).
 --------------------------------------------------------
-CREATE STAGE IF NOT EXISTS BRONZE.RAW_STAGE
-    COMMENT = 'Landing zone for raw Airbnb CSV files and GeoJSON files';
 
---------------------------------------------------------
--- 2b. EXTERNAL STAGE (AWS S3)  —  Step 2.
---     STORAGE INTEGRATION + external stage go here later.
---     02_bronze_load.py points at @BRONZE.RAW_STAGE today; swapping to
---     an S3 external stage is a one-line change there.
+-- 2a. Storage integration: trust to assume the AWS read-only role.
+--     Run once as ACCOUNTADMIN. The role itself stores no credentials in
+--     Snowflake; access is brokered via STS using the role ARN below.
+CREATE STORAGE INTEGRATION IF NOT EXISTS AIRBNB_S3_INT
+    TYPE = EXTERNAL_STAGE
+    STORAGE_PROVIDER = 'S3'
+    ENABLED = TRUE
+    STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::988261629236:role/snowflake-airbnb-s3-read'
+    STORAGE_ALLOWED_LOCATIONS = ('s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/')
+    COMMENT = 'Read-only access to the Airbnb raw S3 bucket';
+
+-- 2b. External S3 stage. Named RAW_STAGE so 02_bronze_load.py keeps
+--     referencing @BRONZE.RAW_STAGE unchanged. URL points at the
+--     inside_airbnb/ prefix so loader paths begin at the city; the
+--     per-file path (city/snapshot_date=.../dataset/file) is built there.
+CREATE OR REPLACE STAGE BRONZE.RAW_STAGE
+    STORAGE_INTEGRATION = AIRBNB_S3_INT
+    URL = 's3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/'
+    COMMENT = 'External S3 landing zone for raw Airbnb CSV + GeoJSON files';
+
+-- 2c. ONE-TIME AWS HANDSHAKE (do this right after first creating 2a):
+--       DESC INTEGRATION AIRBNB_S3_INT;
+--     Copy STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID into the
+--     TRUST POLICY of the IAM role snowflake-airbnb-s3-read, e.g.:
+--       {
+--         "Version": "2012-10-17",
+--         "Statement": [{
+--           "Effect": "Allow",
+--           "Principal": { "AWS": "<STORAGE_AWS_IAM_USER_ARN>" },
+--           "Action": "sts:AssumeRole",
+--           "Condition": { "StringEquals": { "sts:ExternalId": "<STORAGE_AWS_EXTERNAL_ID>" } }
+--         }]
+--       }
+--     The role's PERMISSION policy needs read-only S3 on the bucket:
+--       s3:GetObject, s3:GetObjectVersion on  arn:aws:s3:::airbnb-investment-app-988261629236-eu-west-2-an/raw/*
+--       s3:ListBucket                  on  arn:aws:s3:::airbnb-investment-app-988261629236-eu-west-2-an (prefix raw/*)
 --------------------------------------------------------
 
 --------------------------------------------------------
