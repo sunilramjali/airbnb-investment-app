@@ -45,7 +45,7 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
 | Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `REVIEWS_CLEANED` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED` |
 | Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
 
 ---
@@ -66,11 +66,15 @@ airbnb-investment-app/
 │   ├── 00_setup_api_integration.sql
 │   └── 01_setup_database_and_warehouse.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze EXISTS)
-│   └── ingestion_layer/
-│       ├── 01_bronze_ddl.sql   # file formats + S3 integration + stage (run once)
-│       └── 02_bronze_load.py   # generic loader, driven by the manifest
-│   # silver/ (later)  cleaning / typing  ·  gold/ (later)  features / scoring
+├── etl/                 # the pipeline, by layer (Bronze + Silver EXIST)
+│   ├── ingestion_layer/       # bronze: load raw files
+│   │   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
+│   │   └── 02_bronze_load.py      # generic loader, driven by the manifest
+│   ├── cleaning_layer/        # silver: clean / type / validate
+│   │   ├── cleaning_layer.py      # driver: runs the DDL + transforms, writes CLEAN_AUDIT
+│   │   ├── 01_silver_ddl.sql      # SILVER schema + CLEAN_AUDIT (run once)
+│   │   └── 02_silver_*.sql ...    # one cleaning transform per bronze table
+│   └── gold/   (later)        # features / scoring
 │
 ├── notebooks/ (later)  # exploration + running the pipeline
 │   └── preprocessing_layer.ipynb  (planned)
@@ -96,7 +100,7 @@ airbnb-investment-app/
   folder. See `data_sources.md` for where the raw files came from.
 - **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
 - **`setup/`** — one-time database, warehouse, and integration setup.
-- **`etl/`** — the pipeline itself, by layer (Bronze loader today; Silver/Gold later).
+- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning today; Gold later).
 - **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
 - **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
   `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).

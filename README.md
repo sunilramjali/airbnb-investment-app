@@ -133,50 +133,63 @@ every run; `LOAD_AUDIT` history accumulates.
 
 ---
 
-# Configuring what gets ingested
+# Bronze → Silver (Cleaning) — User Guide
 
-Ingestion is **declarative** — edit `config/ingestion_manifest.py`, not the loader:
+The **silver layer** turns the faithful, all-TEXT `BRONZE.RAW_*` tables into typed,
+validated, analysis-ready `SILVER.*_CLEANED` tables. It lives in `etl/cleaning_layer/`
+and is driven by a single Python file.
 
-- **Add a city:** add its folder name (must match S3 exactly) to `CITIES`.
-- **Add a source file:** add a dict to `DATASETS` with:
-  - `name`  — target Bronze table (e.g. `RAW_LISTINGS`),
-  - `dir`   — the dataset subfolder on the stage (e.g. `listings`),
-  - `file`  — exact filename incl. `.gz` if compressed,
-  - `format`— `"csv"` or `"geojson"`.
+### Prerequisites
 
-No loader changes are needed for either — the manifest drives the loop.
+1. Bronze must be loaded first — run `etl/ingestion_layer/02_bronze_load.py`.
+2. The `AIRBNB_INVESTMENT_DB` database and a warehouse exist (`setup/run_setup.py`).
 
----
+### How to run
 
-# Verifying a load
+Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
+It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
-Check the audit table after any run:
+1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
+2. `02_silver_listings.sql` → `06_silver_neighbourhoods_geo.sql` — one cleaning transform each.
 
-```sql
--- per-file outcome of the most recent loads
-SELECT TABLE_NAME, FILE_NAME, ROWS_LOADED, ERRORS_SEEN, LOAD_TS
-FROM AIRBNB_INVESTMENT_DB.BRONZE.LOAD_AUDIT
-ORDER BY LOAD_TS DESC;
+### What it produces
 
--- rows silently skipped by ON_ERROR = CONTINUE (should be 0)
-SELECT * FROM AIRBNB_INVESTMENT_DB.BRONZE.LOAD_AUDIT WHERE ERRORS_SEEN > 0;
+```text
+AIRBNB_INVESTMENT_DB.SILVER
+├── LISTINGS_CLEANED              # from BRONZE.RAW_LISTINGS
+├── CALENDAR_CLEANED             # from BRONZE.RAW_CALENDAR
+├── REVIEWS_CLEANED              # from BRONZE.RAW_REVIEWS
+├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
+├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
+└── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
 
+Each `*_CLEANED` table is rebuilt (`CREATE OR REPLACE`) on every run; `CLEAN_AUDIT`
+accumulates history.
+
+### Cleaning principles
+
+- **`TRY_CAST` everywhere** — a bad value becomes a countable `NULL`, never a lost row.
+- **Parse dirty strings** — price `"$1,250.00"` → `1250.00`, rates `"95%"` → `95`, flags `"t"/"f"` → `TRUE/FALSE`.
+- **Deduplicate** — one row per natural key (latest load wins, via `QUALIFY ROW_NUMBER()`).
+- **Validate** — drop rows with no usable id or impossible coordinates.
+- **Carry every bronze column** plus `_FILENAME` / `_LOAD_TS` lineage for traceability.
+
+### Auditing a run
+
+```sql
+SELECT * FROM AIRBNB_INVESTMENT_DB.SILVER.CLEAN_AUDIT ORDER BY CLEAN_TS DESC;
+```
+
+`ROWS_DROPPED = ROWS_IN - ROWS_OUT` captures everything removed by validation + dedup,
+so silently filtered rows leave a durable, queryable trace.
+
+### Adding a new cleaning transform
+
+1. Write `etl/cleaning_layer/0N_silver_<table>.sql` (a `CREATE OR REPLACE TABLE ... AS SELECT`).
+2. Add one `(source, target, sql)` entry to the `TRANSFORMS` list in `cleaning_layer.py`.
+
+That's it — the driver runs it in order and records its audit row automatically.
+
 ---
 
-# Snapshots & quarterly refresh
-
-Each quarter the Lambda writes a new `snapshot_date=<date>/` folder per city. To ingest it,
-just re-run `etl/ingestion_layer/02_bronze_load.py` — `latest_snapshot()` finds and loads the
-newest folder for each city independently (cities can be on different snapshot dates). No code
-or manifest change is required.
-
----
-
-# Project Guide
-
-Run `setup/run_setup.py` to integrate the git workspace with the project remote repository and
-set up the project database and warehouse. After that, follow the **Quick Start** above.
-
-Next layers (not built yet): **Silver** (`etl/silver/`, cleaning + typing) and **Gold**
-(`etl/gold/`, features + scoring). See [docs/architecture.md](docs/architecture.md).
