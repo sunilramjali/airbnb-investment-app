@@ -10,8 +10,8 @@
 # @BRONZE.RAW_STAGE/<city>/ before the loader runs.
 CITIES = [
     "london",
-    # "manchester",
-    # "edinburgh",
+    "manchester",
+    "edinburgh",
 ]
 
 # One dict per source file.

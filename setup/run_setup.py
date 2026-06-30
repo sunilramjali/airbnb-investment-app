@@ -1,3 +1,5 @@
+# Setup runner that bootstraps a fresh account then runs all setup SQL in order.
+# Co-authored with CoCo
 # ============================================================
 # Setup runner — executes all setup/*.sql files in order,
 # server-side from the live workspace stage.
@@ -27,8 +29,8 @@ import config.snowflake_context
 importlib.reload(config.snowflake_context)
 from config.snowflake_context import get_session, confirm_warehouse, workspace_stage_path
 
-# ---- connect ----
-session = get_session("dev")
+# ---- connect (bootstrap: no warehouse/db context — they don't exist yet) ----
+session = get_session(set_context=False)
 
 # ---- locate setup files on the LIVE workspace stage ----
 # The kernel's local file mount is a frozen snapshot from session start;
@@ -53,6 +55,9 @@ for i, sql_file in enumerate(sql_files, 1):
     except Exception as e:
         raise RuntimeError(f"Setup file '{sql_file}' failed") from e
 
-# ---- verify ----
+# ---- set context now that the warehouse + database exist, then verify ----
+from config.snowflake_context import WAREHOUSES, DATABASE
+session.sql(f"USE WAREHOUSE {WAREHOUSES['dev']}").collect()
+session.sql(f"USE DATABASE {DATABASE}").collect()
 confirm_warehouse(session)
 print("Setup Complete.")
