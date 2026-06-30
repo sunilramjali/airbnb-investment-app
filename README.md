@@ -67,3 +67,63 @@ DATA WAREHOUSE
 ```
 ---
 
+# Bronze → Silver (Cleaning) — User Guide
+
+The **silver layer** turns the faithful, all-TEXT `BRONZE.RAW_*` tables into typed,
+validated, analysis-ready `SILVER.*_CLEANED` tables. It lives in `etl/cleaning_layer/`
+and is driven by a single Python file.
+
+### Prerequisites
+
+1. Bronze must be loaded first — run `etl/ingestion_layer/02_bronze_load.py`.
+2. The `AIRBNB_INVESTMENT_DB` database and a warehouse exist (`setup/run_setup.py`).
+
+### How to run
+
+Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
+It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
+
+1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
+2. `02_silver_listings.sql` → `06_silver_neighbourhoods_geo.sql` — one cleaning transform each.
+
+### What it produces
+
+```text
+AIRBNB_INVESTMENT_DB.SILVER
+├── LISTINGS_CLEANED              # from BRONZE.RAW_LISTINGS
+├── CALENDAR_CLEANED             # from BRONZE.RAW_CALENDAR
+├── REVIEWS_CLEANED              # from BRONZE.RAW_REVIEWS
+├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
+├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
+└── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
+```
+
+Each `*_CLEANED` table is rebuilt (`CREATE OR REPLACE`) on every run; `CLEAN_AUDIT`
+accumulates history.
+
+### Cleaning principles
+
+- **`TRY_CAST` everywhere** — a bad value becomes a countable `NULL`, never a lost row.
+- **Parse dirty strings** — price `"$1,250.00"` → `1250.00`, rates `"95%"` → `95`, flags `"t"/"f"` → `TRUE/FALSE`.
+- **Deduplicate** — one row per natural key (latest load wins, via `QUALIFY ROW_NUMBER()`).
+- **Validate** — drop rows with no usable id or impossible coordinates.
+- **Carry every bronze column** plus `_FILENAME` / `_LOAD_TS` lineage for traceability.
+
+### Auditing a run
+
+```sql
+SELECT * FROM AIRBNB_INVESTMENT_DB.SILVER.CLEAN_AUDIT ORDER BY CLEAN_TS DESC;
+```
+
+`ROWS_DROPPED = ROWS_IN - ROWS_OUT` captures everything removed by validation + dedup,
+so silently filtered rows leave a durable, queryable trace.
+
+### Adding a new cleaning transform
+
+1. Write `etl/cleaning_layer/0N_silver_<table>.sql` (a `CREATE OR REPLACE TABLE ... AS SELECT`).
+2. Add one `(source, target, sql)` entry to the `TRANSFORMS` list in `cleaning_layer.py`.
+
+That's it — the driver runs it in order and records its audit row automatically.
+
+---
+
