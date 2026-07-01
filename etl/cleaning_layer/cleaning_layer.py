@@ -92,6 +92,11 @@ TRANSFORMS = [
         # so ROWS_IN matches ROWS_OUT and ROWS_DROPPED stays meaningful (0).
         "rows_in_sql": "SELECT ARRAY_SIZE(RAW:features) FROM BRONZE.RAW_NEIGHBOURHOODS_GEO",
     },
+    {
+        "source": "BRONZE.RAW_PRICE_PAID",
+        "target": "SILVER.PRICE_PAID_CLEANED",
+        "sql": SQL_DIR / "07_silver_price_paid.sql",
+    },
 ]
 
 

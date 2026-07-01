@@ -45,7 +45,7 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
 | Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `REVIEWS_CLEANED` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED` |
 | Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
 
 ---
