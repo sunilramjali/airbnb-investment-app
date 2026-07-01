@@ -6,7 +6,7 @@ conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
 
 st.title('Area Overview')
-st.sidebar.success('Select a page above')
+
 
 bristol_area = session.sql("""
 SELECT "neighbourhood_cleansed" as neighbourhood, avg("estimated_revenue_l365d"::numeric) as average_annual_revenue, avg("price"::numeric) as average_price, ST_Y(ST_CENTROID(ST_COLLECT(TO_GEOGRAPHY("GEOGRAPHY")))) as lat,
@@ -36,11 +36,10 @@ with col3:
 with col4:
     st.write('Tourist Attractions: TBC')
 
-bristol_area['color'] = bristol_area['NEIGHBOURHOOD'].apply(
-    lambda x: [255, 0, 0] if x == area else [100, 100, 100]
-)
-
-st.map(bristol_area)
+if city == 'Bristol':
+    st.map(bristol_area)
+else:
+    st.map()
 
 with st.bottom:
     with st.expander('AI Summary'):
