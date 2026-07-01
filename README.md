@@ -61,6 +61,14 @@ time** you want to (re)load data.
 | 3 | Complete the AWS IAM trust handshake | *(AWS console)* | once |
 | 4 | Load all cities into Bronze | `etl/ingestion_layer/02_bronze_load.py` | every load |
 
+The Airbnb steps above are the primary pipeline. **Land Registry Price Paid** is a second,
+independent source that lands in the same `BRONZE` schema (see its section below):
+
+| # | Step | File | When |
+|---|------|------|------|
+| 5 | Create Land Registry format + stage | `etl/ingestion_layer/03_land_registry_ddl.sql` | once |
+| 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
+
 Current project database and warehouses:
 
 ```text
@@ -130,6 +138,45 @@ Run `etl/ingestion_layer/02_bronze_load.py`. For each city × dataset it:
 
 It prints a per-file summary and a final row count per table. Bronze tables are rebuilt on
 every run; `LOAD_AUDIT` history accumulates.
+
+---
+
+# Land Registry Price Paid (Bronze)
+
+A **second, independent source**: UK **HM Land Registry Price Paid Data** (residential sales),
+one CSV per year for **2021 to present**. It lands in the same bucket under a different prefix
+and reuses the existing `AIRBNB_S3_INT` integration — **no new integration or IAM handshake**
+(the role just needs `s3:ListBucket`/`s3:GetObject` on `raw/*`). A monthly Lambda refreshes the
+current-year file.
+
+### S3 layout
+
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/hm_land_registry/price_paid/
+└── year=<YYYY>/pp-<YYYY>.csv
+```
+
+The files have **no header row** and a fixed **16-column** layout, so this source does *not*
+use the manifest/`MATCH_BY_COLUMN_NAME` loader. Instead it uses a dedicated pair of SQL files
+with **positional** column mapping (`$1..$16`).
+
+### Step 1 — One-time setup
+
+Run `etl/ingestion_layer/03_land_registry_ddl.sql` (as `ACCOUNTADMIN`). It creates:
+- `BRONZE.CSV_NOHDR_FF` — a headerless CSV file format,
+- `BRONZE.LAND_REGISTRY_STAGE` — external stage on the `hm_land_registry/price_paid/` prefix.
+
+Verify Snowflake can read S3: `LIST @BRONZE.LAND_REGISTRY_STAGE;` (should list `pp-<YYYY>.csv`).
+
+### Step 2 — Load (run every time)
+
+Run `etl/ingestion_layer/04_land_registry_load.sql`. It:
+- rebuilds `BRONZE.RAW_PRICE_PAID` (16 columns as TEXT + `_FILENAME`/`_FILE_ROW_NUMBER`/`_LOAD_TS`),
+- `COPY`s all `pp-<YYYY>.csv` files (`PATTERN` excludes the `_manifests/` JSON),
+- records the outcome in `BRONZE.LOAD_AUDIT` (sourced from `COPY_HISTORY`, robust to re-runs).
+
+The table is rebuilt each run, so re-running after the monthly refresh is **idempotent** — no
+duplicate rows. All columns stay TEXT (faithful Bronze); typing happens in SILVER.
 
 ---
 

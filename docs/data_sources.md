@@ -64,8 +64,44 @@ tables above. Data is **not** stored in this repository; only the code that load
 
 ---
 
+## Source: HM Land Registry Price Paid Data
+
+UK residential property sales are sourced from **HM Land Registry Price Paid Data (PPD)** —
+one CSV per calendar year, published publicly (no auth). We ingest **2021 to present**; the
+current-year file is cumulative and refreshed by Land Registry roughly monthly.
+
+A monthly AWS Lambda (`land_registry_ppd`) downloads each yearly file and lands it in this
+project's S3 bucket. The files have **no header row** and a fixed **16-column** layout
+(transaction id, price, date of transfer, postcode, property type, old/new, duration, PAON,
+SAON, street, locality, town/city, district, county, PPD category type, record status).
+
+### Where it lives
+
+**In S3** (under the same bucket, read via the existing `AIRBNB_S3_INT` integration):
+
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/hm_land_registry/price_paid/
+└── year=<YYYY>/pp-<YYYY>.csv
+```
+
+**In Snowflake** — landed into `BRONZE.RAW_PRICE_PAID` (all columns TEXT + lineage columns).
+Structural objects (file format + stage) are created by
+[`etl/ingestion_layer/03_land_registry_ddl.sql`](../etl/ingestion_layer/03_land_registry_ddl.sql)
+(run once); the table + load are in
+[`etl/ingestion_layer/04_land_registry_load.sql`](../etl/ingestion_layer/04_land_registry_load.sql).
+The load is idempotent (table rebuilt + all years re-COPYd each run), so re-running after a
+monthly refresh produces no duplicates. Typing/casting happens in SILVER.
+
+---
+
 ## Licensing / attribution
 
 Inside Airbnb data is provided under a Creative Commons licence
 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Attribute Inside Airbnb as the
 source in any published analysis or dashboard built on this data.
+
+HM Land Registry Price Paid Data is provided under the
+[Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+It contains public sector information licensed under the OGL and must carry the attribution:
+*"Contains HM Land Registry data © Crown copyright and database right {year}. This data is
+licensed under the Open Government Licence v3.0."*
