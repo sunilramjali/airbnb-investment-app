@@ -98,7 +98,7 @@ airbnb-investment-app/
   folder. See `data_sources.md` for where the raw files came from.
 - **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
 - **`setup/`** — one-time database, warehouse, and integration setup.
-- **`etl/`** — the pipeline itself, by layer (Bronze loader today; Silver/Gold later).
+- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning today; Gold later).
 - **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
 - **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
   `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).

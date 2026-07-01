@@ -9,104 +9,119 @@ For the project structure and the Bronze → Silver → Gold pipeline, see
 
 ---
 
-## Why use `.gitignore`?
+## What each folder is for
 
-A `.gitignore` file tells Git which files and folders should **not** be uploaded. Useful because
-some files are temporary, private, large, automatically generated, machine-specific, or easy to
-recreate by running the code again.
+### `README.md`
 
-Rule of thumb: **commit** code, documentation, notebooks, and small reusable files; **ignore**
-private files, virtual environments, raw data, and temporary outputs.
+This is the main project guide.
 
----
+It explains:
 
-## Files & folders to ignore
+* what the project is about
+* how the repository is structured
+* how to set up the project
+* how the data pipeline works
+* how the team should collaborate
 
-### `__pycache__/`
-Python auto-creates these compiled-bytecode folders when you run `.py` files. They speed Python
-up slightly but are not needed in Git — Python recreates them automatically.
-```gitignore
-__pycache__/
-```
-
-### `.env`
-Stores private values (API keys, passwords, tokens). **Never** commit it, even in a private
-repo. Commit a non-secret template instead (`.env.example`).
-```gitignore
-.env
-```
-
-### `.venv/`  *(local-only path)*
-> **Snowflake-native note:** this project runs **inside Snowflake**, so there is normally **no
-> `.venv` and no `requirements.txt`** — Snowflake provides the Python environment and session.
-> This rule only matters if you run the code **outside** Snowflake (laptop/CI). See the README
-> "Where This Runs" section.
-
-A local virtual environment can be large and machine-specific. If you use one, ignore it and
-share a `requirements.txt` instead.
-```gitignore
-.venv/
-```
-
-### `data/`
-> **Snowflake-native note:** data lives in Snowflake schemas (BRONZE / SILVER / GOLD), **not** a
-> local `data/` folder. This rule applies only if you keep local copies.
-
-Raw datasets can be large and don't belong in Git. Document where the data came from in
-`docs/data_sources.md` rather than committing the files. Large local CSV/Parquet outputs should
-be ignored the same way.
-```gitignore
-data/
-*.csv
-*.parquet
-```
-(Keep an exception if you intentionally commit a small sample or app-ready file.)
+The README should be the first file a new team member reads.
 
 ---
 
-## What to commit vs ignore
+## Data folder
 
-**Commit:**
+The `data/` folder stores the datasets used and produced by the project.
+
+This project uses three main data layers:
+
 ```text
-config/                    # shared helpers (session, SQL runner, ingestion manifest)
-setup/                     # one-time DB/warehouse/integration setup
-etl/ingestion_layer/       # the pipeline (Bronze loader today; Silver/Gold later)
-notebooks/                 # exploration + running the pipeline (when added)
-docs/                      # documentation
-app/                       # (later) Streamlit app
-tests/                     # (later) validation
-README.md
-.gitignore
-```
-(No `requirements.txt` on the Snowflake-native path — see the note above.)
-
-**Ignore:**
-```text
-.venv/
-.env
-__pycache__/
 data/
-.DS_Store
+├── bronze/
+├── silver/
+└── gold/
 ```
 
 ---
 
-## If a folder was already committed before being ignored
+## Bronze layer
 
-Adding a folder to `.gitignore` does **not** untrack it if it was already committed. To stop
-tracking it without deleting it locally:
-```bash
-git rm -r --cached <folder_name>/
-git add .gitignore
-git commit -m "Add gitignore rules"
+```text
+data/bronze/
 ```
+
+The bronze layer stores the first official version of the data after loading it into the project.
+
+This data is usually close to the original source, with only light changes such as:
+
+* standardising column names
+* adding ingestion dates
+* converting files into a consistent format
+* applying basic schema checks
+
+Bronze data answers:
+
+> What data did we receive from the original source?
+
+Example files:
+
+```text
+data/bronze/airbnb_listings.csv
+data/bronze/airbnb_reviews.csv
+data/bronze/crime_data.csv
+data/bronze/house_prices.csv
+```
+
+The bronze layer should not contain heavily cleaned or final analysis-ready data.
 
 ---
 
-## Summary
+## Silver layer
 
-> Commit files that help the team understand, run, and improve the project. Ignore files that are
-> private, temporary, large, or automatically generated.
+```text
+data/silver/
+```
 
-For this project, the most important things to commit are the pipeline code (`config/`, `setup/`,
-`etl/ingestion_layer/`), notebooks, documentation, the README, and `.gitignore`.
+> **Implemented:** in this project the silver layer is built in `etl/cleaning_layer/`
+> (driven by `cleaning_layer.py`) and lands in the Snowflake `SILVER` schema as
+> `*_CLEANED` tables — not a local `data/silver/` folder. See the README
+> "Bronze → Silver (Cleaning) — User Guide". The `data/silver/` paths below describe
+> the medallion *concept*.
+
+The silver layer stores cleaned and validated data.
+
+This is where the main preprocessing work happens.
+
+The silver layer may include:
+
+* removed duplicates
+* fixed missing values
+* corrected data types
+* cleaned date columns
+* standardised area names
+* cleaned location fields
+* joined lookup tables
+* created useful features
+
+Silver data answers:
+
+> Is the data clean and ready for analysis?
+
+Example files:
+
+```text
+data/silver/listings_cleaned.csv
+data/silver/reviews_cleaned.csv
+data/silver/crime_cleaned.csv
+data/silver/house_prices_cleaned.csv
+```
+
+The silver layer can be used for analysis, modelling, and enrichment.
+
+---
+
+## Gold layer
+
+```text
+data/gold/
+```
+
+The gold layer stores the final
