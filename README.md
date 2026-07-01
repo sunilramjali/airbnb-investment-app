@@ -61,6 +61,14 @@ time** you want to (re)load data.
 | 3 | Complete the AWS IAM trust handshake | *(AWS console)* | once |
 | 4 | Load all cities into Bronze | `etl/ingestion_layer/02_bronze_load.py` | every load |
 
+The Airbnb steps above are the primary pipeline. **Land Registry Price Paid** is a second,
+independent source that lands in the same `BRONZE` schema (see its section below):
+
+| # | Step | File | When |
+|---|------|------|------|
+| 5 | Create Land Registry format + stage | `etl/ingestion_layer/03_land_registry_ddl.sql` | once |
+| 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
+
 Current project database and warehouses:
 
 ```text
@@ -133,7 +141,46 @@ every run; `LOAD_AUDIT` history accumulates.
 
 ---
 
-# Bronze → Silver (Cleaning) — User Guide
+# Land Registry Price Paid (Bronze)
+
+A **second, independent source**: UK **HM Land Registry Price Paid Data** (residential sales),
+one CSV per year for **2021 to present**. It lands in the same bucket under a different prefix
+and reuses the existing `AIRBNB_S3_INT` integration — **no new integration or IAM handshake**
+(the role just needs `s3:ListBucket`/`s3:GetObject` on `raw/*`). A monthly Lambda refreshes the
+current-year file.
+
+### S3 layout
+
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/hm_land_registry/price_paid/
+└── year=<YYYY>/pp-<YYYY>.csv
+```
+
+The files have **no header row** and a fixed **16-column** layout, so this source does *not*
+use the manifest/`MATCH_BY_COLUMN_NAME` loader. Instead it uses a dedicated pair of SQL files
+with **positional** column mapping (`$1..$16`).
+
+### Step 1 — One-time setup
+
+Run `etl/ingestion_layer/03_land_registry_ddl.sql` (as `ACCOUNTADMIN`). It creates:
+- `BRONZE.CSV_NOHDR_FF` — a headerless CSV file format,
+- `BRONZE.LAND_REGISTRY_STAGE` — external stage on the `hm_land_registry/price_paid/` prefix.
+
+Verify Snowflake can read S3: `LIST @BRONZE.LAND_REGISTRY_STAGE;` (should list `pp-<YYYY>.csv`).
+
+### Step 2 — Load (run every time)
+
+Run `etl/ingestion_layer/04_land_registry_load.sql`. It:
+- rebuilds `BRONZE.RAW_PRICE_PAID` (16 columns as TEXT + `_FILENAME`/`_FILE_ROW_NUMBER`/`_LOAD_TS`),
+- `COPY`s all `pp-<YYYY>.csv` files (`PATTERN` excludes the `_manifests/` JSON),
+- records the outcome in `BRONZE.LOAD_AUDIT` (sourced from `COPY_HISTORY`, robust to re-runs).
+
+The table is rebuilt each run, so re-running after the monthly refresh is **idempotent** — no
+duplicate rows. All columns stay TEXT (faithful Bronze); typing happens in SILVER.
+
+---
+
+# Configuring what gets ingested
 
 The **silver layer** turns the faithful, all-TEXT `BRONZE.RAW_*` tables into typed,
 validated, analysis-ready `SILVER.*_CLEANED` tables. It lives in `etl/cleaning_layer/`
@@ -150,7 +197,7 @@ Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
 It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
 1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
-2. `02_silver_listings.sql` → `06_silver_neighbourhoods_geo.sql` — one cleaning transform each.
+2. `02_silver_listings.sql` → `07_silver_price_paid.sql` — one cleaning transform each.
 
 ### What it produces
 
@@ -161,8 +208,21 @@ AIRBNB_INVESTMENT_DB.SILVER
 ├── REVIEWS_CLEANED              # from BRONZE.RAW_REVIEWS
 ├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
 ├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
+├── PRICE_PAID_CLEANED           # from BRONZE.RAW_PRICE_PAID (HM Land Registry; London/Manchester/Bristol only)
 └── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
+
+> **`PRICE_PAID_CLEANED` specifics.** HM Land Registry Price Paid sales, typed and decoded
+> (property type, tenure, build status, PPD category as readable labels), deduped by
+> transaction id. It is **restricted at clean time** to the three investment areas —
+> `COUNTY IN ('GREATER LONDON', 'GREATER MANCHESTER', 'CITY OF BRISTOL')` — where
+> `GREATER LONDON` covers *all* of London (City of London is a district within it). A
+> deterministic `quality_flag` column marks each row `ok` (~80%, arm's-length market sale),
+> `non_standard` (~20%, PPD category B — repossessions, portfolio/company transfers), or
+> `price_suspect` (<0.1%, price outside £10k–£20M sanity bounds). Filter
+> `WHERE quality_flag = 'ok'` for true market price stats. Because the county filter runs
+> inside the transform, this table's `CLEAN_AUDIT.ROWS_DROPPED` is large (~4.4M) by design —
+> that is the non-target counties plus validation.
 
 Each `*_CLEANED` table is rebuilt (`CREATE OR REPLACE`) on every run; `CLEAN_AUDIT`
 accumulates history.

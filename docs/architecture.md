@@ -44,8 +44,8 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
-| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED` |
+| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED` |
 | Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
 
 ---
@@ -66,15 +66,13 @@ airbnb-investment-app/
 │   ├── 00_setup_api_integration.sql
 │   └── 01_setup_database_and_warehouse.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze + Silver EXIST)
-│   ├── ingestion_layer/       # bronze: load raw files
-│   │   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
-│   │   └── 02_bronze_load.py      # generic loader, driven by the manifest
-│   ├── cleaning_layer/        # silver: clean / type / validate
-│   │   ├── cleaning_layer.py      # driver: runs the DDL + transforms, writes CLEAN_AUDIT
-│   │   ├── 01_silver_ddl.sql      # SILVER schema + CLEAN_AUDIT (run once)
-│   │   └── 02_silver_*.sql ...    # one cleaning transform per bronze table
-│   └── gold/   (later)        # features / scoring
+├── etl/                 # the pipeline, by layer (Bronze EXISTS)
+│   └── ingestion_layer/
+│       ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
+│       ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
+│       ├── 03_land_registry_ddl.sql    # Land Registry headerless format + stage (run once)
+│       └── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
+│   # silver/ (later)  cleaning / typing  ·  gold/ (later)  features / scoring
 │
 ├── notebooks/ (later)  # exploration + running the pipeline
 │   └── preprocessing_layer.ipynb  (planned)
