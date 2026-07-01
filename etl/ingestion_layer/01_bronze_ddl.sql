@@ -63,7 +63,7 @@ CREATE STORAGE INTEGRATION IF NOT EXISTS AIRBNB_S3_INT
 --     referencing @BRONZE.RAW_STAGE unchanged. URL points at the
 --     inside_airbnb/ prefix so loader paths begin at the city; the
 --     per-file path (city/snapshot_date=.../dataset/file) is built there.
-CREATE OR REPLACE STAGE BRONZE.RAW_STAGE
+CREATE OR ALTER STAGE BRONZE.RAW_STAGE
     STORAGE_INTEGRATION = AIRBNB_S3_INT
     URL = 's3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/'
     COMMENT = 'External S3 landing zone for raw Airbnb CSV + GeoJSON files';
