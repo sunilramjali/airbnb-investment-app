@@ -97,6 +97,14 @@ TRANSFORMS = [
         "target": "SILVER.PRICE_PAID_CLEANED",
         "sql": SQL_DIR / "07_silver_price_paid.sql",
     },
+    {
+        # Overture POIs -> investment-relevant amenities. Requires BRONZE.RAW_OVERTURE_POI,
+        # loaded by etl/ingestion_layer/05_overture_poi_load.sql (run before this driver).
+        # ROWS_DROPPED here is meaningful: it counts POIs filtered out as non-relevant.
+        "source": "BRONZE.RAW_OVERTURE_POI",
+        "target": "SILVER.POI_CLEANED",
+        "sql": SQL_DIR / "08_silver_poi.sql",
+    },
 ]
 
 
@@ -160,11 +168,4 @@ def run(session, transforms=TRANSFORMS) -> None:
         rows_out = count_rows(session, target)           # silver rows after
 
         record_audit(session, target, source, rows_in, rows_out)
-        verify(session, target, source, rows_in, rows_out)
-
-    print("Silver cleaning complete.")
-
-
-if __name__ == "__main__":
-    session = get_session("dev")
-    run(session)
+        verify(session
