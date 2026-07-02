@@ -93,20 +93,9 @@ TRANSFORMS = [
         "rows_in_sql": "SELECT ARRAY_SIZE(RAW:features) FROM BRONZE.RAW_NEIGHBOURHOODS_GEO",
     },
     {
-        # Overture POIs -> attractions. Requires BRONZE.RAW_OVERTURE_POI, loaded by
-        # etl/ingestion_layer/05_overture_poi_load.sql (run before this driver).
-        # ROWS_DROPPED here is meaningful: it counts POIs filtered out as non-attractions.
-        "source": "BRONZE.RAW_OVERTURE_POI",
-        "target": "SILVER.ATTRACTIONS_CLEANED",
-        "sql": SQL_DIR / "07_silver_attractions.sql",
-    },
-    {
-        # Per-listing proximity features. Reads LISTINGS_CLEANED + ATTRACTIONS_CLEANED
-        # (both produced above), so it must run last. Grain = listings, hence ROWS_IN
-        # is counted from SILVER.LISTINGS_CLEANED rather than the default source.
-        "source": "SILVER.LISTINGS_CLEANED",
-        "target": "SILVER.LISTING_ATTRACTION_PROXIMITY",
-        "sql": SQL_DIR / "08_silver_listing_proximity.sql",
+        "source": "BRONZE.RAW_PRICE_PAID",
+        "target": "SILVER.PRICE_PAID_CLEANED",
+        "sql": SQL_DIR / "07_silver_price_paid.sql",
     },
 ]
 
