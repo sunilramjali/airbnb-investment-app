@@ -105,6 +105,15 @@ TRANSFORMS = [
         "target": "SILVER.POI_CLEANED",
         "sql": SQL_DIR / "08_silver_poi.sql",
     },
+    {
+        # Code-Point Open GB postcodes -> normalized postcode reference. Requires
+        # BRONZE.RAW_CODE_POINT, loaded by etl/ingestion_layer/06_code_point_load.sql.
+        # Clean-only: no filter, no columns dropped, just adds POSTCODE_KEY. ROWS_DROPPED
+        # should be 0 (postcodes are already unique; QUALIFY is dedup safety only).
+        "source": "BRONZE.RAW_CODE_POINT",
+        "target": "SILVER.CODE_POINT_CLEANED",
+        "sql": SQL_DIR / "09_silver_code_point.sql",
+    },
 ]
 
 
@@ -163,9 +172,4 @@ def run(session, transforms=TRANSFORMS) -> None:
         source, target, sql_file = t["source"], t["target"], t["sql"]
         print(f"[{target}] cleaning from {source} via {sql_file.name}")
 
-        rows_in = count_rows_in(session, t)              # bronze rows before (override-aware)
-        run_sql_file(session, sql_file)                  # rebuild the silver table
-        rows_out = count_rows(session, target)           # silver rows after
-
-        record_audit(session, target, source, rows_in, rows_out)
-        verify(session
+        rows_in = count_rows_in(session, t)              # bronze rows before (overri
