@@ -94,6 +94,43 @@ monthly refresh produces no duplicates. Typing/casting happens in SILVER.
 
 ---
 
+## Source: Overture Maps — Places
+
+Landmarks and visitor attractions are sourced from the **Overture Maps "Places"**
+dataset, consumed as a **Snowflake Marketplace share** from CARTO (free, open data).
+Unlike the S3-based sources, there is **no ingestion pipeline** — the data is a live
+share, queried directly.
+
+The share mounts as the database `OVERTURE_MAPS__PLACES`; the global POI table is
+`OVERTURE_MAPS__PLACES.CARTO.PLACE` (~75M point POIs worldwide, geometry as native
+`GEOGRAPHY`, categories/names as VARIANT).
+
+### Where it lives
+
+**In the share** — `OVERTURE_MAPS__PLACES.CARTO.PLACE` (read-only, refreshed by CARTO).
+
+**In Snowflake** — we materialise a spatially scoped copy into our own schemas:
+
+| Object | Notes |
+|---|---|
+| `BRONZE.RAW_OVERTURE_POI` | POIs whose point falls **inside our borough polygons** (`SILVER.NEIGHBOURHOODS_GEO_CLEANED`), so only London / Greater Manchester / Bristol are copied — not the global 75M. Faithful source column shape + lineage. |
+| `SILVER.ATTRACTIONS_CLEANED` | one row per landmark/attraction: name, category, `ATTRACTION_TYPE` bucket, borough, `LOCATION GEOGRAPHY`. Non-attraction POIs are dropped by a category allow-pattern. |
+| `SILVER.LISTING_ATTRACTION_PROXIMITY` | per-listing features: nearest attraction (m) + counts within 500 m / 1 km / 3 km. |
+
+Structural + load logic:
+[`etl/ingestion_layer/05_overture_poi_load.sql`](../etl/ingestion_layer/05_overture_poi_load.sql)
+(Bronze, run each refresh — idempotent `CREATE OR REPLACE`);
+[`etl/cleaning_layer/07_silver_attractions.sql`](../etl/cleaning_layer/07_silver_attractions.sql)
+and
+[`etl/cleaning_layer/08_silver_listing_proximity.sql`](../etl/cleaning_layer/08_silver_listing_proximity.sql)
+(Silver, driven by `cleaning_layer.py`).
+
+**Prerequisite:** acquire the share once via the Marketplace UI (accept terms, name the
+database `OVERTURE_MAPS__PLACES`):
+[listing GZT0Z4CM1E9KR](https://app.snowflake.com/marketplace/listing/GZT0Z4CM1E9KR).
+
+---
+
 ## Licensing / attribution
 
 Inside Airbnb data is provided under a Creative Commons licence
@@ -135,5 +172,12 @@ It types/decodes the coded fields, dedupes by transaction id, and adds a `qualit
 
 Price Paid Data is published under the
 [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
-Contains HM Land Registry data © Crown copyright and database right. Attribute HM Land
-Registry in any published analysis or dashboard built on this data.
+It contains public sector information licensed under the OGL and must carry the attribution:
+*"Contains HM Land Registry data © Crown copyright and database right {year}. This data is
+licensed under the Open Government Licence v3.0."*
+
+Overture Maps data is open and its Places theme is licensed under
+[CDLA Permissive 2.0](https://cdla.dev/permissive-2-0/). Attribute both **Overture Maps
+Foundation** and **CARTO** (the Marketplace distributor) in any published analysis or
+dashboard built on this data. Overture derives Places in part from OpenStreetMap and
+other sources — see the per-record `SOURCES` field for provenance.
