@@ -22,17 +22,21 @@ col1,col2,col3 = st.columns(3)
 persona = 'Nothing'
 
 with col1:
-    fti = st.button('First time investor',type='primary')
+    fti = st.button('Yield Maximiser',type='secondary')
 with col2:
-    el = st.button('Experienced landlord',type='primary')
+    el = st.button('Occupancy Optimiser',type='secondary')
 with col3:
-    pis = st.button('Passive income seeker',type='primary')
+    pis = st.button('Quality Host',type='secondary')
 
 if fti:
-    persona = 'First time investor'
+    persona = 'Yield Maximiser'
 if el:
-    persona = 'Experienced landlord'
+    persona = 'Occupancy Optimiser'
 if pis:
-    persona = 'Passive income seeker'
+    persona = 'Quality Host'
 
 st.write('You have chosen: ',persona)
+st.session_state['persona'] = persona
+
+#st.code('st.session_state')
+#st.session_state
