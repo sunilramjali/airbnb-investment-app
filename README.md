@@ -197,7 +197,7 @@ Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
 It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
 1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
-2. `02_silver_listings.sql` → `06_silver_neighbourhoods_geo.sql` — one cleaning transform each.
+2. `02_silver_listings.sql` → `07_silver_price_paid.sql` — one cleaning transform each.
 
 ### What it produces
 
@@ -208,8 +208,21 @@ AIRBNB_INVESTMENT_DB.SILVER
 ├── REVIEWS_CLEANED              # from BRONZE.RAW_REVIEWS
 ├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
 ├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
+├── PRICE_PAID_CLEANED           # from BRONZE.RAW_PRICE_PAID (HM Land Registry; London/Manchester/Bristol only)
 └── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
+
+> **`PRICE_PAID_CLEANED` specifics.** HM Land Registry Price Paid sales, typed and decoded
+> (property type, tenure, build status, PPD category as readable labels), deduped by
+> transaction id. It is **restricted at clean time** to the three investment areas —
+> `COUNTY IN ('GREATER LONDON', 'GREATER MANCHESTER', 'CITY OF BRISTOL')` — where
+> `GREATER LONDON` covers *all* of London (City of London is a district within it). A
+> deterministic `quality_flag` column marks each row `ok` (~80%, arm's-length market sale),
+> `non_standard` (~20%, PPD category B — repossessions, portfolio/company transfers), or
+> `price_suspect` (<0.1%, price outside £10k–£20M sanity bounds). Filter
+> `WHERE quality_flag = 'ok'` for true market price stats. Because the county filter runs
+> inside the transform, this table's `CLEAN_AUDIT.ROWS_DROPPED` is large (~4.4M) by design —
+> that is the non-target counties plus validation.
 
 Each `*_CLEANED` table is rebuilt (`CREATE OR REPLACE`) on every run; `CLEAN_AUDIT`
 accumulates history.

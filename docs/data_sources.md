@@ -137,7 +137,40 @@ Inside Airbnb data is provided under a Creative Commons licence
 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). Attribute Inside Airbnb as the
 source in any published analysis or dashboard built on this data.
 
-HM Land Registry Price Paid Data is provided under the
+---
+
+## Source: HM Land Registry — Price Paid Data
+
+UK residential property sale prices come from **HM Land Registry's [Price Paid Data](https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads)** —
+the official record of (nearly) every property sale in England & Wales registered for value.
+
+Files are published per year (`pp-<YYYY>.csv`) and land in S3 under
+`raw/hm_land_registry/price_paid/year=<YYYY>/`, loaded all-TEXT into the bronze table below.
+
+| File | Bronze table | Notes |
+|---|---|---|
+| `pp-<YYYY>.csv` | `RAW_PRICE_PAID` | one row per registered sale, all years, all-TEXT |
+
+**Standard Price Paid schema** (no header row in source): transaction id, price, date of
+transfer, postcode, property type (D/S/T/F/O), old/new (Y/N), duration (F/L), PAON, SAON,
+street, locality, town/city, district, county, PPD category (A/B), record status.
+
+### Silver scope
+
+`SILVER.PRICE_PAID_CLEANED` restricts to the three investment areas by `COUNTY`:
+
+| Area | `COUNTY` value |
+|---|---|
+| London (all, incl. City of London district) | `GREATER LONDON` |
+| Greater Manchester | `GREATER MANCHESTER` |
+| Bristol | `CITY OF BRISTOL` |
+
+It types/decodes the coded fields, dedupes by transaction id, and adds a `quality_flag`
+(`ok` / `non_standard` / `price_suspect`). See the README "Bronze → Silver" section.
+
+### Licensing / attribution
+
+Price Paid Data is published under the
 [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 It contains public sector information licensed under the OGL and must carry the attribution:
 *"Contains HM Land Registry data © Crown copyright and database right {year}. This data is
