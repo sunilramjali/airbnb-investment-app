@@ -1,8 +1,13 @@
--- Builds the GOLD facts: FCT_CALENDAR_DAILY (listing x date base) and FCT_LISTING_SNAPSHOT (per-listing investment metrics + POI proximity).
+-- Builds the GOLD facts: FCT_CALENDAR_DAILY (listing x date base), FCT_LISTING_SNAPSHOT (per-listing investment metrics), and FCT_LISTING_POI (per-listing POI proximity).
 -- Co-authored with CoCo
 -- ============================================================
 -- GOLD — FACTS
 -- ------------------------------------------------------------
+-- Single-schema aggregation layer: the whole star + consumer objects
+-- live in GOLD, distinguished by name prefix (DIM_/FCT_/AGG_/MART_/
+-- VW_/FEATURE_). The GOLD schema is created by the setup layer
+-- (setup/01_setup_database_and_warehouse.sql).
+--
 -- FCT_CALENDAR_DAILY   : grain listing x date. Lean projection of
 --                        SILVER.CALENDAR_CLEANED (39M rows) kept
 --                        incremental-friendly (no window fns).

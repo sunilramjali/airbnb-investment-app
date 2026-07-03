@@ -3,6 +3,12 @@
 -- ============================================================
 -- GOLD — DIMENSIONS
 -- ------------------------------------------------------------
+-- Single-schema aggregation layer: the whole star + consumer objects
+-- live in GOLD, distinguished by name prefix (DIM_/FCT_/AGG_/MART_/
+-- VW_/FEATURE_). The GOLD schema itself is created by the setup layer
+-- (setup/01_setup_database_and_warehouse.sql), so there is no separate
+-- DDL file here.
+--
 -- Conformed dimensions for the star. All are DYNAMIC TABLES off
 -- SILVER (auto-refreshing) except DIM_DATE, which is a generated
 -- static table.
