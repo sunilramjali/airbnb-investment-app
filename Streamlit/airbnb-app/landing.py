@@ -19,7 +19,7 @@ session = conn.session()
 
 col1,col2,col3 = st.columns(3)
 
-persona = 'Nothing'
+persona = 'No persona selected'
 
 with col1:
     fti = st.button('Yield Maximiser',type='secondary')

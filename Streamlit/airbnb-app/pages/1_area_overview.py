@@ -90,7 +90,10 @@ with col2:
     else:
         st.write('Average Nightly Price: ','\nUnknown')
 with col3:
-    st.metric('Number of listings',f"{bristol_area['LISTINGS_COUNT'][bristol_area['NEIGHBOURHOOD']==area].iloc[0]}")
+    if city == 'Bristol':
+        st.metric('Number of listings',f"{bristol_area['LISTINGS_COUNT'][bristol_area['NEIGHBOURHOOD']==area].iloc[0]}")
+    else:
+        st.write('Number of listings ','\nUnknown')
 with col4:
     st.write('Nighlife Venues: TBC')
 with col5:

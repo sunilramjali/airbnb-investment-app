@@ -31,6 +31,7 @@ bristol_listings_ranked = load_bristol_listings(session)
 #TITLE ---
 
 st.title('Listing Candidates')
+st.subheader('Use the filters in the sidebar to find your perfect listing')
 
 #INTERACTIVE ELEMENTS ---
 
