@@ -29,11 +29,11 @@ with col3:
     pis = st.button('Quality Host',type='secondary')
 
 if fti:
-    persona = 'Yield Maximiser'
+    persona = 'Yield_Maximiser'
 if el:
-    persona = 'Occupancy Optimiser'
+    persona = 'Occupancy_Optimiser'
 if pis:
-    persona = 'Quality Host'
+    persona = 'Quality_Host'
 
 st.write('You have chosen: ',persona)
 st.session_state['persona'] = persona

@@ -7,3 +7,4 @@ entities:
       - pyproject.toml
       - landing.py
       - .streamlit/config.toml
+      - pages/

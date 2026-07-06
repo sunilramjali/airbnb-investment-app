@@ -6,28 +6,35 @@ session = conn.session()
 
 #SQL QUERY ---
 @st.cache_data(ttl=600)
-
-def load_bristol_listings(_session):
+def load_listings(_session):
     return _session.sql(
             """
-        SELECT "name", 
-            "picture_url",
-            "description", 
-            "neighbourhood_cleansed" as "neighbourhood", 
-            "estimated_revenue_l365d"::numeric as "estimated_revenue_l365d", 
-            "price"::numeric as "price", 
-            "review_scores_rating", 
-            "bedrooms", 
-            "bathrooms", 
-            "property_type", 
-            "room_type", 
-            row_number() over (order by "estimated_revenue_l365d" desc,"price" asc,"review_scores_rating" desc) as "investment_rank"
-        FROM PRACTICE_AIRBNB.PUBLIC."bristol_listings_clean"
-        ORDER BY "investment_rank"
+        SELECT CASE
+                WHEN _filename ILIKE '%london%' THEN 'London'
+                WHEN _filename ILIKE '%bristol%' THEN 'Bristol'
+                WHEN _filename ILIKE '%manchester%' THEN 'Manchester'
+                ELSE 'No city'
+            END as city,
+            listing_id,
+            name, 
+            picture_url,
+            description, 
+            neighbourhood, 
+            estimated_revenue_l365d, 
+            price, 
+            review_scores_rating, 
+            bedrooms, 
+            bathrooms, 
+            property_type, 
+            room_type, 
+            row_number() over (order by estimated_revenue_l365d desc,price asc,review_scores_rating desc) as investment_rank
+        FROM AIRBNB_INVESTMENT_DB.SILVER.LISTINGS_CLEANED
+        ORDER BY investment_rank
     """).to_pandas()
 
-bristol_listings_ranked = load_bristol_listings(session)
-
+listings_ranked = load_listings(session)
+#listings_ranked
+#st.stop()
 #TITLE ---
 
 st.title('Listing Candidates')
@@ -35,59 +42,101 @@ st.subheader('Use the filters in the sidebar to find your perfect listing')
 
 #INTERACTIVE ELEMENTS ---
 
-city = st.sidebar.selectbox('City',('London','Bristol','Manchester'))
+city = st.sidebar.selectbox('City',('All','London','Bristol','Manchester'))
 
-if city == 'Bristol':
-    property_type_selection = bristol_listings_ranked['property_type'].unique().tolist()
+if city != None:
+    property_type_selection = listings_ranked['PROPERTY_TYPE'].unique().tolist()
 else:
     property_type_selection = []
 
 st.session_state['property_type_selection']=property_type_selection
 
-property_type_selection = st.sidebar.multiselect('property type',property_type_selection,default=property_type_selection)
+property_type_selection = st.sidebar.multiselect('Property type',property_type_selection,default=property_type_selection)
 
-#st.write(bristol_listings_ranked.columns.tolist())
+def clear_saved():
+    st.session_state['saved_listings']=set()
+
+st.sidebar.button('Clear saved listings',on_click=clear_saved)
+
+#st.write(listings_ranked.columns.tolist())
 #st.stop()
 
 #TOP THREE LISTINGS CARDS ---
 #THIS FUNCTION RETURNS RELEVANT DATA FOR A SPECIFIC RANK OF LISTINGS
-def get_data_at_rank(index):
-    row = bristol_listings_ranked[bristol_listings_ranked['property_type'].isin(property_type_selection)].iloc[index]
-    url = row['picture_url']
-    desc = row['description']
-    st.image(url, caption=desc)
+def get_data_at_rank(index,cty):
+    if cty != 'All':
+        row = listings_ranked[(listings_ranked['PROPERTY_TYPE'].isin(property_type_selection))&(listings_ranked['CITY']==cty)].iloc[index]
+    else:
+        row = listings_ranked[listings_ranked['PROPERTY_TYPE'].isin(property_type_selection)].iloc[index]
 
-    st.write('Yearly revenue: ', row['estimated_revenue_l365d'])
-    st.write('Price per night: ', row['price'])
-    st.write('Average rating: ', row['review_scores_rating'])
+    listing_id = row['LISTING_ID']
+    url = row['PICTURE_URL']
+    desc = row['DESCRIPTION']
+    if desc != None:
+        st.image(url, caption=desc)
+    else:
+        st.image(url, caption='No description')
 
-    st.write('Property Type: ', row['property_type'])
-    st.write('Room Type: ', row['room_type'])
-    st.write('Bedrooms: ',row['bedrooms'])
-    st.write('Bathrooms: ',row['bathrooms'])
+    st.checkbox(
+        'Save listing',
+        value=listing_id in st.session_state['saved_listings'],
+        key=f'save_{listing_id}',
+        on_change=toggle_save,
+        args=(listing_id,)
+    )
+
+    st.write('Yearly revenue: ', row['ESTIMATED_REVENUE_L365D'])
+    st.write('Price per night: ', row['PRICE'])
+    st.write('Average rating: ', row['REVIEW_SCORES_RATING'])
+
+    st.write('Property Type: ', row['PROPERTY_TYPE'])
+    st.write('Room Type: ', row['ROOM_TYPE'])
+    st.write('Bedrooms: ',row['BEDROOMS'])
+    st.write('Bathrooms: ',row['BATHROOMS'])
+
+    return
 
 col1,col2,col3 = st.columns(3,border=True)
 
+if 'saved_listings' not in st.session_state:
+    st.session_state['saved_listings'] = set()
+
+def toggle_save(listing_id):
+    saved = st.session_state['saved_listings']
+    if listing_id in saved:
+        saved.remove(listing_id)
+    else:
+        saved.add(listing_id)
+
 with col1:
     #FIRST BEST LISTING
-    if city == 'Bristol':
-        get_data_at_rank(0)
+    if city != None:
+        try:
+            get_data_at_rank(0,city)
+        except IndexError:
+            st.write('No value')
     else:
         st.write('No data')
 with col2:
     #SECOND BEST LISTING
-    if city =='Bristol':
-        get_data_at_rank(1)
+    if city != None:
+        try:
+            get_data_at_rank(1,city)
+        except IndexError:
+            st.write('No value')
     else:
         st.write('No data')
 with col3:
     #THIRD BEST LISTING
-    if city == 'Bristol':
-        get_data_at_rank(2)
+    if city != None:
+        try:
+            get_data_at_rank(2,city)
+        except IndexError:
+            st.write('No value')
     else:
         st.write('No data')
 
-bristol_listings_ranked[bristol_listings_ranked['property_type'].isin(property_type_selection)]
+#listings_ranked[listings_ranked['PROPERTY_TYPE'].isin(property_type_selection)]
 #bristol_property_type_ranked[bristol_property_type_ranked['property_type'].isin(property_type_selection)]
 
 with st.bottom:

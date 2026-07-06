@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 
+st.cache_data.clear()
+
 conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
 
