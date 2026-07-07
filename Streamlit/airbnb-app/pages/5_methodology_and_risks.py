@@ -17,31 +17,14 @@ st.subheader('How the app calculates area comparisons and how to interpret the r
 
 def source_card(title, description):
     st.markdown(
-        f"""
-        <div style="
-            background-color: #f4f3ee;
-            border-radius: 10px;
-            padding: 14px;
-            min-height: 100px;
-            margin-bottom: 10px;
-        ">
-            <div style="
-                font-weight: 600;
-                font-size: 15px;
-                margin-bottom: 5px;
-            ">
-                {title}
-            </div>
-
-            <div style="
-                font-size: 13px;
-                line-height: 1.4;
-                color: #4d4d4d;
-            ">
-                {description}
-            </div>
-        </div>
-        """,
+        f"""<div style="background-color: #f4f3ee; border-radius: 10px; padding: 14px; min-height: 100px; margin-bottom: 10px;">
+<div style="font-weight: 600; font-size: 15px; margin-bottom: 5px;">
+{title}
+</div>
+<div style="font-size: 13px; line-height: 1.4; color: #4d4d4d;">
+{description}
+</div>
+</div>""",
         unsafe_allow_html=True
     )
 
