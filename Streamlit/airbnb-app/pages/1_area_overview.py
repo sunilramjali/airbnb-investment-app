@@ -40,18 +40,18 @@ def load_neighbourhoods(_session):
     """
     ).to_pandas()
 
-@st.cache_data(ttl=300)
-def load_summary(_session):
-    return _session.sql(
-    """
-        SELECT *
-        FROM MBRXEHU_YPB38047_AIRBNB_GOLD_SHARE.GOLD.AI_OUTPUTS
-    """
-    ).to_pandas()
+#@st.cache_data(ttl=300)
+#def load_summary(_session):
+ #   return _session.sql(
+  #  """
+   #     SELECT *
+    #    FROM MBRXEHU_YPB38047_AIRBNB_GOLD_SHARE.GOLD.AI_OUTPUTS
+    #"""
+    #).to_pandas()
 
 neighbourhoods = load_neighbourhoods(session)
 
-ai_summary = load_summary(session)
+#ai_summary = load_summary(session)
 #INTERACTIVE ELEMENTS ---
 
 city = st.sidebar.selectbox('City',('All','London','Bristol','Manchester'))
@@ -66,6 +66,19 @@ st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].to
 area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
 
 #VISUALISATIONS ---
+col1,col2,col3,col4,col5 = st.columns(5,border=True)
+
+with col1:
+    st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
+with col2:
+    st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
+with col3:
+    st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
+with col4:
+    st.write('Nighlife Venues: TBC')
+with col5:
+    st.write('Tourist Attractions: TBC')
+
 
 acol1,acol2,acol3 = st.columns([1,1,1],border=True)
 
@@ -152,33 +165,20 @@ st.pydeck_chart(pdk.Deck(
 ))
 
 #---
-
-col1,col2,col3,col4,col5 = st.columns(5,border=True)
-
-with col1:
-    st.metric('Average ROI ',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
-with col2:
-    st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
-with col3:
-    st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
-with col4:
-    st.write('Nighlife Venues: TBC')
-with col5:
-    st.write('Tourist Attractions: TBC')
-
 with st.bottom:
     with st.expander('AI Summary'):
         st.write('This is your AI summary using persona:', st.session_state['persona'])
-        mask = (
-            (ai_summary['persona'].str.lower() == st.session_state['persona'].lower())
-            & (ai_summary['neighbourhood_cleansed'] == area)
-        )
-        matches = ai_summary.loc[mask, 'ai_narrative']
 
-        if not matches.empty:
-            narrative_dict = json.loads(matches.iloc[0])
-            investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
-            st.write(investment_summary)
-        else:
-            st.warning("No AI summary found for this persona/area combination.")
+        #mask = (
+         #   (ai_summary['persona'].str.lower() == st.session_state['persona'].lower())
+          #  & (ai_summary['neighbourhood_cleansed'] == area)
+        #)
+        #matches = ai_summary.loc[mask, 'ai_narrative']
+
+        #if not matches.empty:
+         #   narrative_dict = json.loads(matches.iloc[0])
+          #  investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
+           # st.write(investment_summary)
+        #else:
+         #   st.warning("No AI summary found for this persona/area combination.")
 
