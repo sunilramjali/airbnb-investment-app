@@ -1,4 +1,4 @@
--- Builds the GOLD conformed dimensions (DIM_LISTING with GEO_POINT + STRUCTURE_CLASS, DIM_HOST, DIM_NEIGHBOURHOOD, DIM_POI) and a generated DIM_DATE.
+-- Builds the GOLD conformed dimensions (DIM_LISTING with GEO_POINT + STRUCTURE_CLASS, DIM_HOST, DIM_NEIGHBOURHOOD with CITY, DIM_POI) and a generated DIM_DATE.
 -- Co-authored with CoCo
 -- ============================================================
 -- GOLD — DIMENSIONS
@@ -105,17 +105,22 @@ FROM SILVER.LISTINGS_CLEANED
 QUALIFY ROW_NUMBER() OVER (PARTITION BY HOST_ID ORDER BY LAST_SCRAPED DESC NULLS LAST) = 1;
 
 -- ------------------------------------------------------------
--- DIM_NEIGHBOURHOOD — grain: one row per borough.
+-- DIM_NEIGHBOURHOOD — grain: one row per neighbourhood (unique).
 -- Carries the GEOGRAPHY boundary for point-in-polygon attribution.
+-- CITY is derived from the source file path (region segment).
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_NEIGHBOURHOOD
     TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
-    COMMENT    = 'Neighbourhood/borough dimension with GEOGRAPHY boundary + area_sqkm.'
+    COMMENT    = 'Neighbourhood dimension with CITY, GEOGRAPHY boundary + area_sqkm.'
 AS
 SELECT
     NEIGHBOURHOOD,
-    NEIGHBOURHOOD_GROUP,
+    CASE SPLIT_PART(_FILENAME, '/', 3)
+        WHEN 'greater_manchester' THEN 'Greater Manchester'
+        WHEN 'bristol'            THEN 'Bristol'
+        WHEN 'london'             THEN 'London'
+    END                                  AS CITY,
     BOUNDARY,
     AREA_SQKM
 FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED;
