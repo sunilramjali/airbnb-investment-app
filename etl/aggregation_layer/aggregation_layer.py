@@ -63,6 +63,7 @@ STEPS = [
             "GOLD.DIM_LISTING",
             "GOLD.DIM_HOST",
             "GOLD.DIM_NEIGHBOURHOOD",
+            "GOLD.DIM_PROPERTY_GROUP",
             "GOLD.DIM_POI",
             "GOLD.DIM_DATE",
         ],
@@ -78,9 +79,10 @@ STEPS = [
     {
         "sql": SQL_DIR / "03_app_marts.sql",
         "produces": [
-            "GOLD.MART_LISTING",
-            "GOLD.MART_AREA",
-            "GOLD.MART_AREA_STRUCTURE",
+            "GOLD.MART_LISTING_CANDIDATES",
+            "GOLD.MART_AREA_OVERVIEW",
+            "GOLD.MART_PROPERTY_GROUP",
+            "GOLD.MART_AREA_POI",
         ],
     },
 ]

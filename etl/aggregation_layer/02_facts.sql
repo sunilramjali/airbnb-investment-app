@@ -69,6 +69,7 @@ SELECT
     NEIGHBOURHOOD_GROUP,
     ROOM_TYPE,
     STRUCTURE_CLASS,
+    PROPERTY_GROUP,
     GEO_POINT,
     PRICE                                              AS ADR,
     ESTIMATED_OCCUPANCY_L365D                          AS OCCUPANCY_NIGHTS,
