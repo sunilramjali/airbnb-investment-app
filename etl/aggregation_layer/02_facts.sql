@@ -27,24 +27,29 @@
 --   OCCUPANCY_RATE = ESTIMATED_OCCUPANCY_L365D / 365
 --   ANNUAL_REVENUE = ESTIMATED_REVENUE_L365D
 --   REVPAR         = ANNUAL_REVENUE / 365
+--
+-- REFRESH DESIGN: FCT_LISTING_SNAPSHOT and FCT_LISTING_POI use
+-- TARGET_LAG = DOWNSTREAM (they feed MART_LISTING, which anchors the
+-- lag). FCT_CALENDAR_DAILY keeps an explicit '1 day' lag because no
+-- mart consumes it yet — a DOWNSTREAM table with no downstream consumer
+-- would never refresh.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
 USE SCHEMA GOLD;
 
 -- ------------------------------------------------------------
--- FCT_CALENDAR_DAILY — daily availability/price per listing.
+-- FCT_CALENDAR_DAILY — daily availability per listing.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.FCT_CALENDAR_DAILY
     TARGET_LAG = '1 day'
     WAREHOUSE  = COMPUTE_WH
-    COMMENT    = 'Daily availability & price per listing (grain: listing x date). Lean incremental projection of SILVER.CALENDAR_CLEANED.'
+    COMMENT    = 'Daily availability per listing (grain: listing x date). Lean incremental projection of SILVER.CALENDAR_CLEANED.'
 AS
 SELECT
     LISTING_ID,
     CALENDAR_DATE,
     AVAILABLE,
-    ADJUSTED_PRICE,
     MINIMUM_NIGHTS,
     MAXIMUM_NIGHTS
 FROM SILVER.CALENDAR_CLEANED;
@@ -53,7 +58,7 @@ FROM SILVER.CALENDAR_CLEANED;
 -- FCT_LISTING_SNAPSHOT — per-listing investment metrics.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.FCT_LISTING_SNAPSHOT
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'Per-listing investment metrics: ADR, occupancy rate, annual revenue, RevPAR. v1 uses scraper estimates.'
 AS
@@ -79,7 +84,7 @@ FROM GOLD.DIM_LISTING;
 -- Separate from the snapshot to keep that refresh cheap.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.FCT_LISTING_POI
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'POI proximity per listing: count of POIs within 500m, overall and for transport. Bounded ST_DWITHIN join.'
 AS

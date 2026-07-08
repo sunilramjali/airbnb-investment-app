@@ -24,10 +24,11 @@
 --                      Ambiguous types (hotel/hostel/boat/etc.) -> NULL
 --                      and are excluded from yield downstream.
 --
--- v1 NOTE: TARGET_LAG is an explicit '1 day' on every dynamic table
--- so each layer materializes immediately for validation. Switching
--- upstream dims/facts to TARGET_LAG = DOWNSTREAM is a later refresh
--- optimization once the marts are the pacing consumers.
+-- REFRESH DESIGN: dimensions use TARGET_LAG = DOWNSTREAM — they refresh
+-- only as needed to satisfy their downstream consumers (facts/marts).
+-- The pacing anchor is the app marts (03_app_marts.sql), which carry an
+-- explicit TARGET_LAG. Note DIM_DATE is a static generated table with no
+-- lag.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
@@ -38,7 +39,7 @@ USE SCHEMA GOLD;
 -- Rich listing attributes + spatial point + structure class.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_LISTING
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'Listing dimension: attributes, GEO_POINT for spatial joins, STRUCTURE_CLASS (Flat/House) for the sale-price yield join.'
 AS
@@ -74,7 +75,6 @@ SELECT
     l.HAS_AVAILABILITY,
     l.ESTIMATED_OCCUPANCY_L365D,
     l.ESTIMATED_REVENUE_L365D,
-    l.LICENSE,
     l.LISTING_URL,
     l.PICTURE_URL
 FROM SILVER.LISTINGS_CLEANED l;
@@ -84,7 +84,7 @@ FROM SILVER.LISTINGS_CLEANED l;
 -- Deduplicated from listings (latest scrape wins per host).
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_HOST
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'Host dimension, one row per HOST_ID (latest scrape wins).'
 AS
@@ -109,7 +109,7 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY HOST_ID ORDER BY LAST_SCRAPED DESC NULLS
 -- Carries the GEOGRAPHY boundary for point-in-polygon attribution.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_NEIGHBOURHOOD
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'Neighbourhood/borough dimension with GEOGRAPHY boundary + area_sqkm.'
 AS
@@ -125,7 +125,7 @@ FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED;
 -- Location as GEOGRAPHY point for proximity features.
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_POI
-    TARGET_LAG = '1 day'
+    TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
     COMMENT    = 'Point-of-interest dimension (LOCATION geography) for listing proximity features.'
 AS
