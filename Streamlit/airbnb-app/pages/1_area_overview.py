@@ -1,18 +1,14 @@
 # Area overview page for Airbnb investment app
-# Co-authored with CoCo
 import streamlit as st
 import os
 import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
-
 st.set_page_config(layout = 'wide')
 
-
-st.divider()
+if 'starred_neighbourhoods' not in st.session_state:
+    st.session_state['starred_neighbourhoods'] = []
 
 if len(st.session_state['starred_neighbourhoods']) == 3:
     if st.button('Continue to Property Types'):
@@ -20,6 +16,11 @@ if len(st.session_state['starred_neighbourhoods']) == 3:
 else:
     st.button('Continue to Property Types', disabled = True)
     st.caption('Select exactly 3 neighbourhoods before continuing.')
+
+conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
+session = conn.session()
+
+
 
 #TITLE ---
 st.title('Area Overview')
@@ -162,8 +163,7 @@ def build_map_data(city, _filtered_df):
 #BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS AND SELECTS NEIGBURHOODS INTO STARRED SECTION
 geojson_data, view_state = build_map_data(city, filtered_neighbourhoods)
 
-if 'starred_neighbourhoods' not in st.session_state:
-    st.session_state['starred_neighbourhoods'] = []
+
 
 map_col1, map_col2 = st.columns([3, 1], border=True)
 
