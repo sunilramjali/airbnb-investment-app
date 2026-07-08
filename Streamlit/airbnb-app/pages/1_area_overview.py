@@ -1,3 +1,5 @@
+# Area overview page for Airbnb investment app
+# Co-authored with CoCo
 import streamlit as st
 import os
 import pydeck as pdk
@@ -9,10 +11,19 @@ session = conn.session()
 
 st.set_page_config(layout = 'wide')
 
-#TITLE ---
 
+st.divider()
+
+if len(st.session_state['starred_neighbourhoods']) == 3:
+    if st.button('Continue to Property Types'):
+        st.switch_page('pages/2_property_types.py')
+else:
+    st.button('Continue to Property Types', disabled = True)
+    st.caption('Select exactly 3 neighbourhoods before continuing.')
+
+#TITLE ---
 st.title('Area Overview')
-st.subheader('Select your desired city and find the best neighbourhoods based on your selected persona')
+st.subheader('Select your desired city and find the best neighbourhoods based on your selected persona. Star your personal favourite 3 neighbourhoods.')
 
 #SQL QUERY ---
 @st.cache_data(ttl=300)
@@ -40,18 +51,18 @@ def load_neighbourhoods(_session):
     """
     ).to_pandas()
 
-#@st.cache_data(ttl=300)
-#def load_summary(_session):
- #   return _session.sql(
-  #  """
-   #     SELECT *
-    #    FROM MBRXEHU_YPB38047_AIRBNB_GOLD_SHARE.GOLD.AI_OUTPUTS
-    #"""
-    #).to_pandas()
+@st.cache_data(ttl=300)
+def load_summary(_session):
+    return _session.sql(
+    """
+        SELECT *
+        FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+    """
+    ).to_pandas()
 
 neighbourhoods = load_neighbourhoods(session)
 
-#ai_summary = load_summary(session)
+ai_summary = load_summary(session)
 #INTERACTIVE ELEMENTS ---
 
 city = st.sidebar.selectbox('City',('All','London','Bristol','Manchester'))
@@ -66,7 +77,7 @@ st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].to
 #area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
 
 #VISUALISATIONS ---
-col1,col2,col3,col4,col5 = st.columns(5,border=True)
+#col1,col2,col3,col4,col5 = st.columns(5,border=True)
 
 #with col1:
  #   st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
@@ -119,8 +130,10 @@ def build_map_data(city, _filtered_df):
             "geometry": geom,
             "properties": {
                 "name": row["NEIGHBOURHOOD"],
+                "city": row["CITY"],
                 "metric": round(row["AVERAGE_ANNUAL_REVENUE"]),
-                "metric1": round(row)
+                "metric1": round(row["AVERAGE_PRICE"]),
+                "metric2": row["LISTINGS_COUNT"],
                 "is_top_three": row["NEIGHBOURHOOD"] in top_neighbourhoods
             }
         })
@@ -146,7 +159,7 @@ def build_map_data(city, _filtered_df):
 
     return geojson_data, view_state
 
-#BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS, AND SELECTION INTO STARRED BOX
+#BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS AND SELECTS NEIGBURHOODS INTO STARRED SECTION
 geojson_data, view_state = build_map_data(city, filtered_neighbourhoods)
 
 if 'starred_neighbourhoods' not in st.session_state:
@@ -175,7 +188,7 @@ with map_col1:
             map_style="dark_no_labels",
             layers=[layer],
             initial_view_state=view_state,
-            tooltip={"text": "{name}\nAverage Annual Revenue: £{metric}"}
+            tooltip={"text": "{name}\nAverage Annual Revenue: £{metric}\nAverage Price Per Night: £{metric1}\nNumber of Listings: {metric2}"}
         ),
         on_select="rerun",
         selection_mode="single-object",
@@ -183,47 +196,91 @@ with map_col1:
     )
     
     selected_objects = map_event.selection.objects.get("neighbourhood-boundaries", [])
-    
+
     if selected_objects:
         selected_neighbourhood = selected_objects[0]["properties"]["name"]
+        selected_city = selected_objects[0]["properties"]["city"]
         
-        if selected_neighbourhood not in st.session_state['starred_neighbourhoods']:
-            st.session_state['starred_neighbourhoods'].append(selected_neighbourhood)
+        selected_star = {
+            "neighbourhood": selected_neighbourhood,
+            "city": selected_city
+        }
+        
+        if selected_star in st.session_state['starred_neighbourhoods']:
+            st.info(selected_neighbourhood + ' is already starred.')
+
+        elif len(st.session_state['starred_neighbourhoods']) < 3:
+            st.session_state['starred_neighbourhoods'].append(selected_star)
             st.rerun()
+    
+        else:
+            st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
 
 with map_col2:
     st.subheader('Starred neighbourhoods')
 
-    if len(st.session_state['starred_neighbourhoods']) == 0:
+    starred_count = len(st.session_state['starred_neighbourhoods'])
+
+    st.write(f'{starred_count}/3 selected')
+
+    if starred_count < 3:
+        st.info('Select 3 neighbourhoods to continue.')
+    elif starred_count == 3:
+        st.success('Ready to continue.')
+
+    if starred_count == 0:
         st.write('No starred neighbourhoods yet.')
     else:
-        for neighbourhood in st.session_state['starred_neighbourhoods']:
+        for starred_area in st.session_state['starred_neighbourhoods']:
+            neighbourhood = starred_area['neighbourhood']
+            city_name = starred_area['city']
+        
             star_col1, star_col2 = st.columns([3, 1])
-
+        
             with star_col1:
                 st.write('⭐ ' + neighbourhood)
-
+                st.caption(city_name)
+        
             with star_col2:
-                if st.button('Remove', key = 'remove_' + neighbourhood):
-                    st.session_state['starred_neighbourhoods'].remove(neighbourhood)
+                if st.button('Remove', key='remove_' + city_name + '_' + neighbourhood):
+                    st.session_state['starred_neighbourhoods'].remove(starred_area)
                     st.rerun()
 
 
 #---
 with st.bottom:
     with st.expander('AI Summary'):
-        st.write('This is your AI summary using persona:', st.session_state['persona'])
 
-        #mask = (
-         #   (ai_summary['persona'].str.lower() == st.session_state['persona'].lower())
-          #  & (ai_summary['neighbourhood_cleansed'] == area)
-        #)
-        #matches = ai_summary.loc[mask, 'ai_narrative']
+        persona = st.session_state.get('persona', None)
+        starred_neighbourhoods = st.session_state.get('starred_neighbourhoods', [])
 
-        #if not matches.empty:
-         #   narrative_dict = json.loads(matches.iloc[0])
-          #  investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
-           # st.write(investment_summary)
-        #else:
-         #   st.warning("No AI summary found for this persona/area combination.")
+        if persona is None:
+            st.warning('No persona has been selected yet.')
+
+        elif len(starred_neighbourhoods) == 0:
+            st.warning('No starred neighbourhoods selected yet.')
+
+        else:
+            st.write('This is your AI summary using persona:', persona)
+
+            for starred_area in starred_neighbourhoods:
+                neighbourhood = starred_area['neighbourhood']
+                city_name = starred_area['city']
+            
+                st.subheader(neighbourhood)
+                st.caption(city_name)
+            
+                mask = (
+                    (ai_summary['persona'].str.lower() == persona.lower())
+                    & (ai_summary['neighbourhood_cleansed'].str.lower() == neighbourhood.lower())
+                )
+            
+                matches = ai_summary.loc[mask, 'ai_narrative']
+            
+                if not matches.empty:
+                    narrative_dict = json.loads(matches.iloc[0])
+                    investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
+                    st.write(investment_summary)
+                else:
+                    st.warning('No AI summary found for this persona/neighbourhood combination.')
 

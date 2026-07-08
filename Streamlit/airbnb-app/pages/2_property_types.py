@@ -8,8 +8,8 @@ session = conn.session()
 
 #TITLE ---
 
-st.title('Property Type Overview')
-
+st.title('Property Type')
+st.subheader('Out of your favourite neighbourhoods, find the best property types based on your selected persona. Choose 3 property types from any of the nieghbourhoods that spark the most interest.')
 #SQL QUERY ---
 
 bristol_property_type_ranked = session.sql(
