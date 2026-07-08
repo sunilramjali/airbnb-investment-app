@@ -46,7 +46,33 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 |-------|------------------|-------|----------------|
 | Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT` |
 | Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP` |
-| Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
+| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_POI`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `MART_LISTING`, `MART_AREA`, `MART_AREA_STRUCTURE` |
+
+---
+
+## Why this design
+
+The pipeline combines four well-known patterns, each chosen for a specific reason:
+
+- **Medallion architecture** (Bronze → Silver → Gold). Data flows one direction and each
+  layer has one job, so failures and fixes stay localised — you can rebuild Gold without
+  re-ingesting, or fix a cleaning bug without touching raw data.
+- **Kimball dimensional modelling** (the `DIM_*` / `FCT_*` star). Conformed dimensions are
+  reused across many facts (one `DIM_LISTING` serves the snapshot, POI, and calendar
+  facts), which is query-efficient and analyst-friendly.
+- **Denormalised data marts / serving layer** (the `MART_*` tables). The joins and
+  aggregates are computed *once* at refresh time and stored in the shape each app screen
+  needs, so the app does trivial single-table `SELECT`s — low, predictable latency and no
+  duplicated metric logic. (This mirrors the **CQRS** idea: separate the write/transform
+  model from the read model.)
+- **Incremental dynamic tables with `DOWNSTREAM` chaining**. You declare *what* each table
+  is and a freshness target; Snowflake decides *how* and *when* to refresh. The marts carry
+  the explicit lag anchor and upstream layers refresh only as needed — no hand-written
+  orchestration, no redundant full rebuilds.
+
+In short: a **medallion pipeline with a Kimball star at the core and a denormalised,
+materialised serving layer on top**, refreshed incrementally — a single source of truth for
+every metric, with all the expensive work pushed to refresh time so reads stay cheap.
 
 ---
 
@@ -139,20 +165,4 @@ This keeps two people from editing the same file at once, which reduces merge co
 2. **The app reads the GOLD schema only** — never Bronze or Silver.
 3. **Logic lives in shared modules (`config/` + `etl/`), not copy-pasted across notebooks** (see [what_is_src.md](what_is_src.md)).
 4. **No hardcoded connection details** — use `config/snowflake_context.py`.
-5. **One notebook / one script = one focused job**, with a number prefix so order is clear.
-6. **Never commit** `data/`, `.venv/`, `.env`, secrets, or `.ipynb_checkpoints/`.
-7. **No direct pushes to `main`** — branch + Pull Request (see [branching_strategy.md](branching_strategy.md)).
-
----
-
-## How a change flows through the project (example)
-
-> Goal: add an "investment score" column the app can show.
-
-1. **Silver** — a shared cleaning transform produces clean listings in the SILVER schema.
-2. **Gold** — a shared scoring transform computes the score and writes
-   `GOLD.INVESTMENT_SCORES`.
-3. **Test** — a QA check confirms the score is between 0 and 100.
-4. **App** — `app/main.py` reads `GOLD.INVESTMENT_SCORES` and displays it.
-
-The same scoring logic powers the GOLD table, the test, and the app — so they can never disagree.
+5. **One notebook / one script = one focused job**, 
