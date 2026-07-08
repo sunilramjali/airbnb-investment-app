@@ -12,7 +12,7 @@ st.set_page_config(layout = 'wide')
 #TITLE ---
 
 st.title('Area Overview')
-st.subheader('Use the filters in the sidebar and find the best area for your investment')
+st.subheader('Select your desired city and find the best neighbourhoods based on your selected persona')
 
 #SQL QUERY ---
 @st.cache_data(ttl=300)
@@ -63,21 +63,21 @@ else:
 
 st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].tolist()
 
-area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
+#area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
 
 #VISUALISATIONS ---
 col1,col2,col3,col4,col5 = st.columns(5,border=True)
 
-with col1:
-    st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
-with col2:
-    st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
-with col3:
-    st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
-with col4:
-    st.write('Nighlife Venues: TBC')
-with col5:
-    st.write('Tourist Attractions: TBC')
+#with col1:
+ #   st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
+#with col2:
+ #   st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
+#with col3:
+ #   st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
+#with col4:
+ #   st.write('Nighlife Venues: TBC')
+#with col5:
+ #   st.write('Tourist Attractions: TBC')
 
 
 acol1,acol2,acol3 = st.columns([1,1,1],border=True)
@@ -109,6 +109,9 @@ neighbourhoods_center_lon = filtered_neighbourhoods['LON'].mean()
 @st.cache_data(ttl=300)
 def build_map_data(city, _filtered_df):
     features = []
+
+    top_neighbourhoods = _filtered_df.head(3)['NEIGHBOURHOOD'].tolist()
+    
     for _, row in _filtered_df.iterrows():
         geom = row["BOUNDARY"] if isinstance(row["BOUNDARY"], dict) else json.loads(row["BOUNDARY"])
         features.append({
@@ -116,7 +119,9 @@ def build_map_data(city, _filtered_df):
             "geometry": geom,
             "properties": {
                 "name": row["NEIGHBOURHOOD"],
-                "metric": round(row["AVERAGE_ANNUAL_REVENUE"])
+                "metric": round(row["AVERAGE_ANNUAL_REVENUE"]),
+                "metric1": round(row)
+                "is_top_three": row["NEIGHBOURHOOD"] in top_neighbourhoods
             }
         })
 
@@ -141,28 +146,68 @@ def build_map_data(city, _filtered_df):
 
     return geojson_data, view_state
 
-#BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, AND PROPERTIES AS TOOLTIPS
+#BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS, AND SELECTION INTO STARRED BOX
 geojson_data, view_state = build_map_data(city, filtered_neighbourhoods)
 
-layer = pdk.Layer(
-    "GeoJsonLayer",
-    geojson_data,
-    opacity=0.6,
-    stroked=True,
-    filled=True,
-    extruded=False,
-    get_fill_color="[255, 140, properties.metric * 2, 140]",
-    get_line_color=[0, 0, 0],
-    get_line_width=100,
-    pickable=True,
-)
+if 'starred_neighbourhoods' not in st.session_state:
+    st.session_state['starred_neighbourhoods'] = []
 
-st.pydeck_chart(pdk.Deck(
-    map_style="dark_no_labels",
-    layers=[layer],
-    initial_view_state=view_state,
-    tooltip={"text": "{name}\nAverage Annual Revenue: £{metric}"}
-))
+map_col1, map_col2 = st.columns([3, 1], border=True)
+
+with map_col1:
+    layer = pdk.Layer(
+        "GeoJsonLayer",
+        geojson_data,
+        id = "neighbourhood-boundaries",
+        opacity=0.6,
+        stroked=True,
+        filled=True,
+        extruded=False,
+        get_fill_color="[properties.is_top_three ? 0 : 255, properties.is_top_three ? 200 : 140, properties.is_top_three ? 80 : 120, 160]",
+        get_line_color=[0, 0, 0],
+        get_line_width=100,
+        pickable=True,
+        auto_highlight = True
+    )
+    
+    map_event = st.pydeck_chart(
+        pdk.Deck(
+            map_style="dark_no_labels",
+            layers=[layer],
+            initial_view_state=view_state,
+            tooltip={"text": "{name}\nAverage Annual Revenue: £{metric}"}
+        ),
+        on_select="rerun",
+        selection_mode="single-object",
+        key="neighbourhood_map"
+    )
+    
+    selected_objects = map_event.selection.objects.get("neighbourhood-boundaries", [])
+    
+    if selected_objects:
+        selected_neighbourhood = selected_objects[0]["properties"]["name"]
+        
+        if selected_neighbourhood not in st.session_state['starred_neighbourhoods']:
+            st.session_state['starred_neighbourhoods'].append(selected_neighbourhood)
+            st.rerun()
+
+with map_col2:
+    st.subheader('Starred neighbourhoods')
+
+    if len(st.session_state['starred_neighbourhoods']) == 0:
+        st.write('No starred neighbourhoods yet.')
+    else:
+        for neighbourhood in st.session_state['starred_neighbourhoods']:
+            star_col1, star_col2 = st.columns([3, 1])
+
+            with star_col1:
+                st.write('⭐ ' + neighbourhood)
+
+            with star_col2:
+                if st.button('Remove', key = 'remove_' + neighbourhood):
+                    st.session_state['starred_neighbourhoods'].remove(neighbourhood)
+                    st.rerun()
+
 
 #---
 with st.bottom:

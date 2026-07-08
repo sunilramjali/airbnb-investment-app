@@ -9,8 +9,11 @@ st.set_page_config(
 st.sidebar.success('Select a page above')
 
 st.title("Airbnb Investment Intelligence")
+st.warning(
+    "LONDON 90-DAY RULE: Short-term lets in London are generally limited to 90 nights per calendar year unless planning permission is granted."
+)
 st.write(
-  """Data-driven insights to help you find the best short-term rental opportunities in the UK. Select your investor profile to get personalised recommendations.
+    """Data-driven insights to help you find the best short-term rental opportunities in the UK. Select your investor profile to get personalised recommendations.
   """
 )
 
