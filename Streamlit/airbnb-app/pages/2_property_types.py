@@ -12,16 +12,33 @@ st.title('Property Type')
 st.subheader('Out of your favourite neighbourhoods, find the best property types based on your selected persona. Choose 3 property types from any of the nieghbourhoods that spark the most interest.')
 #SQL QUERY ---
 
-bristol_property_type_ranked = session.sql(
-    """
-        SELECT "property_type",
-            avg("estimated_revenue_l365d"::numeric) as avg_revenue,
-            avg("price"::numeric) as avg_price,
-            avg("review_scores_rating"::numeric) as avg_rating,
-            row_number() over (order by avg_revenue desc,avg_price asc,avg_rating desc) as investment_rank
-        FROM PRACTICE_AIRBNB.PUBLIC."bristol_listings_clean"
-        GROUP BY "property_type"
-    """
-).to_pandas()
+@st.cache_data(ttl=300)
+def load_property_types(_session):
+    return _session.sql(
+        """
+         SELECT CASE
+                WHEN l._filename ILIKE '%london%' THEN 'London'
+                WHEN l._filename ILIKE '%bristol%' THEN 'Bristol'
+                WHEN l._filename ILIKE '%manchester%' THEN 'Manchester'
+                ELSE 'No city'
+            END as city,
+
+            d.NEIGHBOURHOOD, d.ROOM_TYPE, d.PROPERTY_TYPE, d.STRUCTURE_CLASS, COUNT(*) AS LISTING_COUNT
+
+        FROM AIRBNB_INVESTMENT_DB.GOLD.DIM_LISTING d
+        
+        JOIN AIRBNB_INVESTMENT_DB.SILVER."LISTINGS_CLEANED" l
+        
+        ON d.NEIGHBOURHOOD = l.NEIGHBOURHOOD
+
+        WHERE NEIGHBOURHOOD IS NOT NULL AND ROOM_TYPE IS NOT NULL AND PROPERTY_TYPE IS NOT NULL AND STRUCTURE_CLASS IS NOT NULL
+
+        GROUP BY CITY, NEIGHBOURHOOD, ROOM_TYPE, PROPERTY_TYPE, STRUCTURE_CLASS
+
+        ORDER BY CITY, NEIGHBOURHOOD, LISTING_COUNT DESC
+        """
+    ).to_pandas()
+
+property_types = load_property_types(session)
 
 #VISUALISATIONS ---
