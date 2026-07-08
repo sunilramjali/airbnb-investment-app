@@ -69,6 +69,16 @@ independent source that lands in the same `BRONZE` schema (see its section below
 | 5 | Create Land Registry format + stage | `etl/ingestion_layer/03_land_registry_ddl.sql` | once |
 | 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
 
+**Overture POI** and **OS Code-Point Open** are two further Bronze sources — Snowflake
+**Marketplace shares** rather than S3 files, so they have no stage/format and no IAM handshake
+(see "Marketplace-share sources" below). Acquire each share once via **Get Data**, then run its
+loader every refresh:
+
+| # | Step | File | When |
+|---|------|------|------|
+| 7 | Load Overture Places POIs into Bronze | `etl/ingestion_layer/05_overture_poi_load.sql` | every load |
+| 8 | Load Code-Point Open postcodes into Bronze | `etl/ingestion_layer/06_code_point_load.sql` | every load |
+
 Current project database and warehouses:
 
 ```text
@@ -180,6 +190,40 @@ duplicate rows. All columns stay TEXT (faithful Bronze); typing happens in SILVE
 
 ---
 
+# Marketplace-share sources (Bronze)
+
+Two further Bronze sources come from **Snowflake Marketplace shares**, not S3. A share is live
+data mounted as a database in this account, so there is **no stage, no file format, and no IAM
+handshake** — each loader is a single SQL file that reads the share and writes a `BRONZE.RAW_*`
+snapshot. Both loaders are `CREATE OR REPLACE`, so re-running after the provider refreshes the
+share is **idempotent** (no duplicates).
+
+**Prerequisite for both:** acquire the share once via **Get Data** in Marketplace (accept the
+provider terms). The loader references the share by the database name it mounts under.
+
+### Overture Maps Places → `BRONZE.RAW_OVERTURE_POI`
+
+Run `etl/ingestion_layer/05_overture_poi_load.sql`. Source is the Overture Maps "Places" share
+from CARTO (`OVERTURE_MAPS__PLACES.CARTO.PLACE`, ~75M global point POIs). This is **not** a full
+copy — it is a **spatially scoped snapshot** of only the POIs inside our borough polygons
+(London / Greater Manchester / Bristol). It filters in two stages: a cheap numeric bounding-box
+prefilter on lon/lat, then an exact point-in-polygon `ST_WITHIN` join to
+`SILVER.NEIGHBOURHOODS_GEO_CLEANED`.
+
+> **Prerequisite:** `SILVER.NEIGHBOURHOODS_GEO_CLEANED` must exist first (it defines the spatial
+> coverage filter) — run the silver cleaning layer through `06_silver_neighbourhoods_geo.sql`
+> before this loader.
+
+### OS Code-Point Open → `BRONZE.RAW_CODE_POINT`
+
+Run `etl/ingestion_layer/06_code_point_load.sql`. Source is the Ordnance Survey "Code-Point Open"
+share (`POSTCODE_UNITS__GREAT_BRITAIN_CODEPOINT_OPEN`, ~1.7M GB postcode units with a GEOGRAPHY
+point + admin codes). Unlike Overture this is a **faithful full snapshot** — all source columns
+carried as-is, no filtering — because the whole of GB is cheap to hold and it future-proofs
+adding cities. Postcode → neighbourhood attribution is deferred downstream.
+
+---
+
 # Configuring what gets ingested
 
 The **silver layer** turns the faithful, all-TEXT `BRONZE.RAW_*` tables into typed,
@@ -190,6 +234,9 @@ and is driven by a single Python file.
 
 1. Bronze must be loaded first — run `etl/ingestion_layer/02_bronze_load.py`.
 2. The `AIRBNB_INVESTMENT_DB` database and a warehouse exist (`setup/run_setup.py`).
+3. For the POI and postcode transforms, the two Marketplace-share Bronze tables must also
+   exist — run `05_overture_poi_load.sql` and `06_code_point_load.sql` first (Overture in turn
+   needs `NEIGHBOURHOODS_GEO_CLEANED`, so it is loaded after that silver step).
 
 ### How to run
 
@@ -197,7 +244,9 @@ Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
 It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
 1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
-2. `02_silver_listings.sql` → `07_silver_price_paid.sql` — one cleaning transform each.
+2. `02_silver_listings.sql` → `10_silver_property_group_map.sql` — one cleaning transform each
+   (Airbnb + Land Registry in `02–07`, then Overture POI, Code-Point, and the property-group
+   lookup in `08–10`).
 
 ### What it produces
 
@@ -209,8 +258,25 @@ AIRBNB_INVESTMENT_DB.SILVER
 ├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
 ├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
 ├── PRICE_PAID_CLEANED           # from BRONZE.RAW_PRICE_PAID (HM Land Registry; London/Manchester/Bristol only)
+├── POI_CLEANED                  # from BRONZE.RAW_OVERTURE_POI (investment-relevant amenities, per borough)
+├── CODE_POINT_CLEANED           # from BRONZE.RAW_CODE_POINT (GB postcodes + normalized POSTCODE_KEY)
+├── PROPERTY_GROUP_MAP           # from SILVER.LISTINGS_CLEANED (property_type -> property_group lookup)
 └── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
+
+> **`POI_CLEANED` specifics.** Overture POIs filtered by a **curated amenity allow-list** to the
+> categories that plausibly affect investment value (Transport, Attractions & Culture, Parks &
+> Green, Dining & Nightlife, Groceries & Essentials, Fitness, Education, Health) — everything
+> else is dropped, so `ROWS_DROPPED` is meaningful. Each POI is assigned to the borough polygon
+> it falls in, deduped to one row per POI id.
+
+> **`CODE_POINT_CLEANED` specifics.** A clean-only pass over all ~1.7M GB postcodes: **no filter,
+> no columns dropped**, the only added column is `POSTCODE_KEY` (upper-cased, spaces removed) for
+> joining to normalized Price Paid postcodes downstream. `ROWS_DROPPED` should be 0.
+
+> **`PROPERTY_GROUP_MAP` specifics.** A small lookup mapping each distinct cleaned
+> `property_type` to a higher-level `property_group` (e.g. Apartment / Flat, House, Unique Stay).
+> Built from `SILVER.LISTINGS_CLEANED`, so it runs after `02_silver_listings.sql`.
 
 > **`PRICE_PAID_CLEANED` specifics.** HM Land Registry Price Paid sales, typed and decoded
 > (property type, tenure, build status, PPD category as readable labels), deduped by

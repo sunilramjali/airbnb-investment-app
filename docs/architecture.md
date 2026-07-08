@@ -44,8 +44,8 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
-| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED` |
+| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP` |
 | Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
 
 ---
@@ -66,13 +66,21 @@ airbnb-investment-app/
 │   ├── 00_setup_api_integration.sql
 │   └── 01_setup_database_and_warehouse.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze EXISTS)
-│   └── ingestion_layer/
-│       ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
-│       ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
-│       ├── 03_land_registry_ddl.sql    # Land Registry headerless format + stage (run once)
-│       └── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
-│   # silver/ (later)  cleaning / typing  ·  gold/ (later)  features / scoring
+├── etl/                 # the pipeline, by layer (Bronze + Silver EXIST)
+│   ├── ingestion_layer/
+│   │   ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
+│   │   ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
+│   │   ├── 03_land_registry_ddl.sql    # Land Registry headerless format + stage (run once)
+│   │   ├── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
+│   │   ├── 05_overture_poi_load.sql    # Overture Places POIs (Marketplace share; scoped to boroughs)
+│   │   └── 06_code_point_load.sql      # OS Code-Point Open postcodes (Marketplace share; full GB copy)
+│   └── cleaning_layer/                 # Silver transforms, driven by cleaning_layer.py
+│       ├── 01_silver_ddl.sql           # SILVER schema + CLEAN_AUDIT
+│       ├── 02..07_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid
+│       ├── 08_silver_poi.sql           # Overture POIs -> investment-relevant amenities
+│       ├── 09_silver_code_point.sql    # postcodes -> normalized POSTCODE_KEY reference
+│       └── 10_silver_property_group_map.sql  # property_type -> property_group lookup
+│   # aggregation_layer/ (later)  sales x postcode  ·  gold/ (later)  features / scoring
 │
 ├── notebooks/ (later)  # exploration + running the pipeline
 │   └── preprocessing_layer.ipynb  (planned)

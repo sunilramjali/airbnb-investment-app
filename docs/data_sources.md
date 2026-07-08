@@ -137,3 +137,65 @@ Price Paid Data is published under the
 [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 Contains HM Land Registry data © Crown copyright and database right. Attribute HM Land
 Registry in any published analysis or dashboard built on this data.
+
+---
+
+## Source: Overture Maps Places (Marketplace share)
+
+Points of interest come from the **Overture Maps "Places"** dataset, provided by **CARTO** as a
+**Snowflake Marketplace share** (not S3). Once acquired via *Get Data*, it mounts as the shared
+database `OVERTURE_MAPS__PLACES`; the global places table
+`OVERTURE_MAPS__PLACES.CARTO.PLACE` holds ~75M point POIs worldwide, each with a GEOGRAPHY point,
+name/category VARIANTs, and a confidence score.
+
+### Where it lives
+
+A live share — there is **no S3 stage or file format**. The loader
+[`etl/ingestion_layer/05_overture_poi_load.sql`](../etl/ingestion_layer/05_overture_poi_load.sql)
+reads the share directly and writes a **spatially scoped** snapshot to `BRONZE.RAW_OVERTURE_POI` —
+only POIs that fall inside the ingested borough polygons (London / Greater Manchester / Bristol),
+via a bounding-box prefilter + exact point-in-polygon `ST_WITHIN` against
+`SILVER.NEIGHBOURHOODS_GEO_CLEANED`. `CREATE OR REPLACE` keeps re-runs idempotent.
+
+| Share object | Bronze table | Notes |
+|---|---|---|
+| `OVERTURE_MAPS__PLACES.CARTO.PLACE` | `RAW_OVERTURE_POI` | scoped to our boroughs; VARIANT names/categories |
+
+### Prerequisite
+
+`SILVER.NEIGHBOURHOODS_GEO_CLEANED` must exist first — it defines the spatial coverage filter.
+
+### Licensing / attribution
+
+Overture Maps data is released under open licences (Places: CDLA Permissive 2.0). Attribute the
+**Overture Maps Foundation** in any published analysis or dashboard built on this data.
+
+---
+
+## Source: Ordnance Survey Code-Point Open (Marketplace share)
+
+GB postcodes come from **Ordnance Survey "Code-Point Open"**, provided as a **Snowflake
+Marketplace share**. Once acquired via *Get Data*, it mounts as the shared database
+`POSTCODE_UNITS__GREAT_BRITAIN_CODEPOINT_OPEN`; its view
+`PRS_CODE_POINT_OPEN_SCH.PRS_CODE_POINT_OPEN_VW` holds ~1.7M GB postcode units, each with a
+GEOGRAPHY point and administrative area codes (county / district / ward, NHS codes).
+
+### Where it lives
+
+A live share — **no S3 stage or file format**. The loader
+[`etl/ingestion_layer/06_code_point_load.sql`](../etl/ingestion_layer/06_code_point_load.sql)
+writes a **faithful full snapshot** (all source columns, no filtering) to `BRONZE.RAW_CODE_POINT`.
+The whole of GB is cheap to hold and future-proofs adding cities; spatial scoping and
+postcode → neighbourhood attribution are deferred to later layers. `CREATE OR REPLACE` keeps
+re-runs idempotent.
+
+| Share object | Bronze table | Notes |
+|---|---|---|
+| `...PRS_CODE_POINT_OPEN_VW` | `RAW_CODE_POINT` | full GB copy; postcode + GEOGRAPHY + admin codes |
+
+### Licensing / attribution
+
+Code-Point Open is published under the
+[Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+Contains OS data © Crown copyright and database right. Attribute **Ordnance Survey** in any
+published analysis or dashboard built on this data.
