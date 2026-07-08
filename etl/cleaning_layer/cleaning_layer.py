@@ -16,6 +16,10 @@
 #   4) 04_silver_reviews.sql             -> SILVER.REVIEWS_CLEANED.
 #   5) 05_silver_neighbourhoods.sql      -> SILVER.NEIGHBOURHOODS_CLEANED.
 #   6) 06_silver_neighbourhoods_geo.sql  -> SILVER.NEIGHBOURHOODS_GEO_CLEANED.
+#   7) 07_silver_price_paid.sql          -> SILVER.PRICE_PAID_CLEANED.
+#   8) 08_silver_poi.sql                 -> SILVER.POI_CLEANED.
+#   9) 09_silver_code_point.sql          -> SILVER.CODE_POINT_CLEANED.
+#  10) 10_silver_property_group_map.sql  -> SILVER.PROPERTY_GROUP_MAP.
 #
 # Adding another table later = add one (source, target, sql) entry
 # to TRANSFORMS below.
@@ -114,6 +118,16 @@ TRANSFORMS = [
         "target": "SILVER.CODE_POINT_CLEANED",
         "sql": SQL_DIR / "09_silver_code_point.sql",
     },
+    {
+        # Lookup: distinct cleaned property_type -> property_group category. Reads
+        # from SILVER.LISTINGS_CLEANED, so it must run after 02_silver_listings
+        # (guaranteed by list order). rows_in override = distinct property_type so
+        # ROWS_IN matches ROWS_OUT (~51) and ROWS_DROPPED stays a meaningful 0.
+        "source": "SILVER.LISTINGS_CLEANED",
+        "target": "SILVER.PROPERTY_GROUP_MAP",
+        "sql": SQL_DIR / "10_silver_property_group_map.sql",
+        "rows_in_sql": "SELECT COUNT(DISTINCT property_type) FROM SILVER.LISTINGS_CLEANED",
+    },
 ]
 
 
@@ -172,4 +186,15 @@ def run(session, transforms=TRANSFORMS) -> None:
         source, target, sql_file = t["source"], t["target"], t["sql"]
         print(f"[{target}] cleaning from {source} via {sql_file.name}")
 
-        rows_in = count_rows_in(session, t)              # bronze rows before (overri
+        rows_in = count_rows_in(session, t)              # input rows before (override-aware)
+        run_sql_file(session, sql_file)                  # build the SILVER target
+        rows_out = count_rows(session, target)           # rows written to the target
+        record_audit(session, target, source, rows_in, rows_out)  # persist audit trail
+        verify(session, target, source, rows_in, rows_out)        # print in/out/dropped
+
+    print("Silver cleaning complete.")
+
+
+if __name__ == "__main__":
+    session = get_session("dev")
+    run(session)

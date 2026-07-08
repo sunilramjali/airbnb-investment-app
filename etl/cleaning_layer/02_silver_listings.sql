@@ -39,7 +39,12 @@ WITH typed AS (
         NULLIF(TRIM("description"), '')                                           AS description,
         NULLIF(TRIM("neighborhood_overview"), '')                                 AS neighborhood_overview,
         NULLIF(TRIM("amenities"), '')                                             AS amenities,
-        NULLIF(TRIM("property_type"), '')                                         AS property_type,
+        -- ---- property_type: strip room-type prefixes, lowercase, trim ----
+        TRIM(REGEXP_REPLACE(
+            LOWER(NULLIF(TRIM("property_type"), '')),
+            '^(entire|private room in|shared room in|room in|private room|shared room)\\s*',
+            ''
+        ))                                                                        AS property_type,
         NULLIF(TRIM("room_type"), '')                                             AS room_type,
         NULLIF(TRIM("license"), '')                                               AS license,
 
