@@ -64,6 +64,7 @@ def load_summary(_session):
 neighbourhoods = load_neighbourhoods(session)
 
 ai_summary = load_summary(session)
+
 #INTERACTIVE ELEMENTS ---
 
 city = st.sidebar.selectbox('City',('All','London','Bristol','Manchester'))
@@ -273,6 +274,7 @@ with st.bottom:
                 mask = (
                     (ai_summary['persona'].str.lower() == persona.lower())
                     & (ai_summary['neighbourhood_cleansed'].str.lower() == neighbourhood.lower())
+                    & (ai_summary['output_type'].str.lower() == 'area_overview')
                 )
             
                 matches = ai_summary.loc[mask, 'ai_narrative']
