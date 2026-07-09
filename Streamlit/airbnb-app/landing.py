@@ -20,26 +20,26 @@ st.write(
 conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
 
-col1,col2,col3 = st.columns(3)
+if "persona" not in st.session_state:
+    st.session_state["persona"] = None
 
-persona = 'No persona selected'
+col1,col2,col3 = st.columns(3) 
 
-with col1:
-    fti = st.button('Yield Maximiser',type='secondary')
-with col2:
-    el = st.button('Occupancy Optimiser',type='secondary')
-with col3:
-    pis = st.button('Quality Host',type='secondary')
+persona = 'No persona selected' 
 
-if fti:
-    persona = 'Yield_Maximiser'
-if el:
-    persona = 'Occupancy_Optimiser'
-if pis:
-    persona = 'Quality_Host'
+with col1: 
+    fti = st.button('Yield Maximiser',type='secondary') 
+with col2: el = st.button('Occupancy Optimiser',type='secondary') 
 
-st.write('You have chosen: ',persona)
+with col3: pis = st.button('Quality Host',type='secondary') 
+
+if fti: persona = 'Yield_Maximiser' 
+
+if el: persona = 'Occupancy_Optimiser' 
+
+if pis: persona = 'Quality_Host' 
+
+st.write('You have chosen: ',persona) 
 st.session_state['persona'] = persona
-
 #st.code('st.session_state')
 #st.session_state

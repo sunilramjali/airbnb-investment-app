@@ -5,6 +5,8 @@ import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
 
+st.cache_data.clear()
+
 st.set_page_config(layout = 'wide')
 
 if 'starred_neighbourhoods' not in st.session_state:
@@ -28,27 +30,42 @@ st.subheader('Select your desired city and find the best neighbourhoods based on
 
 #SQL QUERY ---
 @st.cache_data(ttl=300)
-def load_neighbourhoods(_session):
+def load_neighbourhoods(_session, persona):
+    safe_persona = persona.replace("'", "''")
+
     return _session.sql(
-    """
-        SELECT CASE
-                WHEN l._filename ILIKE '%london%' THEN 'London'
-                WHEN l._filename ILIKE '%bristol%' THEN 'Bristol'
-                WHEN l._filename ILIKE '%manchester%' THEN 'Manchester'
-                ELSE 'No city'
-            END as city,
-            l.neighbourhood,
-            avg(l.price) as average_price,
-            avg(l.estimated_revenue_l365d) as average_annual_revenue,
-            count(l.listing_id) as listings_count,
-            ANY_VALUE(ST_ASGEOJSON(n.boundary)) as BOUNDARY,
-            ANY_VALUE(ST_Y(ST_CENTROID(n.boundary))) as lat,
-            ANY_VALUE(ST_X(ST_CENTROID(n.boundary))) as lon,
-            row_number() over (order by average_annual_revenue desc, average_price asc) as investment_rank
-        FROM AIRBNB_INVESTMENT_DB.SILVER."LISTINGS_CLEANED" l
-        JOIN AIRBNB_INVESTMENT_DB.SILVER."NEIGHBOURHOODS_GEO_CLEANED" n ON n.neighbourhood = l.neighbourhood
-        GROUP BY l.neighbourhood, city
-        ORDER BY investment_rank
+    f"""
+        SELECT n.CITY,
+            n.NEIGHBOURHOOD,
+            n.LISTING_COUNT AS listings_count,
+            n.AVG_ADR AS average_adr,
+            n.MEDIAN_ADR AS median_adr,
+            n.AVG_OCCUPANCY_RATE as average_occupancy_rate,
+            n.AVG_ANNUAL_REVENUE AS average_annual_revenue,
+            n.MEDIAN_ANNUAL_REVENUE AS median_annual_revenue,
+            n.MEDIAN_SALE_PRICE as median_sale_price,
+            n.AVG_BEDROOMS AS average_no_bedrooms,
+            n.AVG_RATING AS average_rating,
+            n.POI_COUNT AS poi_count,
+            n.POI_DENSITY_SQKM AS poi_density,
+            n.TRANSPORT_COUNT AS transport_count,
+            n.DINING_COUNT AS dining_count,
+            n.AREA_SQKM AS area,
+            ST_ASGEOJSON(n.BOUNDARY) as boundary,
+            ST_Y(ST_CENTROID(n.BOUNDARY)) as lat,
+            ST_X(ST_CENTROID(n.BOUNDARY)) as lon,
+            l."investment_score" AS INVESTMENT_SCORE,
+            ROW_NUMBER() OVER (ORDER BY l."investment_score" DESC) AS INVESTMENT_RANK
+        
+        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA n
+        
+        JOIN  TESTER123GOLD.GOLD.AI_OUTPUTS l
+        
+        ON lower(n.neighbourhood) = lower(l."neighbourhood_cleansed")
+
+        WHERE LOWER(l."persona") = LOWER('{safe_persona}') AND lower(l."output_type") = 'area_overview'
+        
+        ORDER BY l."investment_score" DESC
     """
     ).to_pandas()
 
@@ -61,7 +78,13 @@ def load_summary(_session):
     """
     ).to_pandas()
 
-neighbourhoods = load_neighbourhoods(session)
+persona = st.session_state.get('persona', None)
+
+if persona is None:
+    st.warning('No persona selected. Please go back to the homepage and select a persona.')
+    st.stop()
+
+neighbourhoods = load_neighbourhoods(session, persona)
 
 ai_summary = load_summary(session)
 
@@ -93,23 +116,31 @@ st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].to
  #   st.write('Tourist Attractions: TBC')
 
 
-acol1,acol2,acol3 = st.columns([1,1,1],border=True)
+acol1, acol2, acol3 = st.columns([1, 1, 1], border=True)
 
 def find_best_neighbourhoods(index):
     if index >= len(filtered_neighbourhoods):
         st.write('No data')
         return
+
     row = filtered_neighbourhoods.iloc[index]
-    st.header(str(index+1)+'. '+row['NEIGHBOURHOOD'])
-    #st.subheader(row['CITY'])
+
+    st.header(str(index + 1) + '. ' + row['NEIGHBOURHOOD'])
+    st.caption(row['CITY'])
+
+    st.metric('Investment rank', f"{row['INVESTMENT_RANK']}")
+    st.metric('Investment score', f"{row['INVESTMENT_SCORE']:,.1f}")
     st.metric('Average annual revenue', f"£{row['AVERAGE_ANNUAL_REVENUE']:,.0f}")
-    st.metric('Average price charged per night', f"£{row['AVERAGE_PRICE']:,.0f}")
-    st.metric('Number of listings: ', f"{row['LISTINGS_COUNT']}")
+    st.metric('Average rating', f"{row['AVERAGE_RATING']:,.2f}")
+    st.metric('POI density', f"{row['POI_DENSITY']:,.2f} per sqkm")
+    st.metric('Area', f"{row['AREA']:,.2f} sqkm")
 
 with acol1:
     find_best_neighbourhoods(0)
+
 with acol2:
     find_best_neighbourhoods(1)
+
 with acol3:
     find_best_neighbourhoods(2)
 
@@ -124,18 +155,31 @@ def build_map_data(city, _filtered_df):
     features = []
 
     top_neighbourhoods = _filtered_df.head(3)['NEIGHBOURHOOD'].tolist()
-    
+
     for _, row in _filtered_df.iterrows():
         geom = row["BOUNDARY"] if isinstance(row["BOUNDARY"], dict) else json.loads(row["BOUNDARY"])
+
         features.append({
             "type": "Feature",
             "geometry": geom,
             "properties": {
                 "name": row["NEIGHBOURHOOD"],
                 "city": row["CITY"],
-                "metric": round(row["AVERAGE_ANNUAL_REVENUE"]),
-                "metric1": round(row["AVERAGE_PRICE"]),
-                "metric2": row["LISTINGS_COUNT"],
+                "listings_count": row["LISTINGS_COUNT"],
+                "average_adr": round(row["AVERAGE_ADR"]),
+                "median_adr": round(row["MEDIAN_ADR"]),
+                "average_occupancy_rate": round(row["AVERAGE_OCCUPANCY_RATE"], 2),
+                "average_annual_revenue": round(row["AVERAGE_ANNUAL_REVENUE"]),
+                "median_annual_revenue": round(row["MEDIAN_ANNUAL_REVENUE"]),
+                "average_no_bedrooms": round(row["AVERAGE_NO_BEDROOMS"], 2),
+                "average_rating": round(row["AVERAGE_RATING"], 2),
+                "poi_count": row["POI_COUNT"],
+                "poi_density": round(row["POI_DENSITY"], 2),
+                "transport_count": row["TRANSPORT_COUNT"],
+                "dining_count": row["DINING_COUNT"],
+                "area": round(row["AREA"], 2),
+                "investment_score": round(row["INVESTMENT_SCORE"], 1),
+                "investment_rank": row["INVESTMENT_RANK"],
                 "is_top_three": row["NEIGHBOURHOOD"] in top_neighbourhoods
             }
         })
@@ -145,9 +189,11 @@ def build_map_data(city, _filtered_df):
     all_coords = []
     for feature in features:
         geom = feature["geometry"]
+
         if geom["type"] == "Polygon":
             for ring in geom["coordinates"]:
                 all_coords.extend(ring)
+
         elif geom["type"] == "MultiPolygon":
             for polygon in geom["coordinates"]:
                 for ring in polygon:
@@ -189,8 +235,18 @@ with map_col1:
             map_style="dark_no_labels",
             layers=[layer],
             initial_view_state=view_state,
-            tooltip={"text": "{name}\nAverage Annual Revenue: £{metric}\nAverage Price Per Night: £{metric1}\nNumber of Listings: {metric2}"}
+            tooltip={
+                "text": "{name}\n"
+                        "City: {city}\n"
+                        "Investment Rank: {investment_rank}\n"
+                        "Investment Score: {investment_score}\n"
+                        "Average Annual Revenue: £{average_annual_revenue}\n"
+                        "Average Rating: {average_rating}\n"
+                        "POI Density: {poi_density}\n"
+                        "Area: {area} sqkm"
+            }
         ),
+        height = 650,
         on_select="rerun",
         selection_mode="single-object",
         key="neighbourhood_map"
@@ -216,6 +272,34 @@ with map_col1:
     
         else:
             st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
+
+        selected_properties = selected_objects[0]["properties"]
+
+        with st.expander("Selected neighbourhood details", expanded=True):
+            dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+
+            with dcol1:
+                st.metric("Investment rank", selected_properties["investment_rank"])
+                st.metric("Investment score", selected_properties["investment_score"])
+                st.metric("Listings", f"{selected_properties['listings_count']:,}")
+                st.metric("Average nightly rate", f"£{selected_properties['average_adr']:,.0f}")
+
+            with dcol2:
+                st.metric("Median nightly rate", f"£{selected_properties['median_adr']:,.0f}")
+                st.metric("Occupancy rate", selected_properties["average_occupancy_rate"])
+                st.metric("Average yearly revenue", f"£{selected_properties['average_annual_revenue']:,.0f}")
+                st.metric("Median yearly revenue", f"£{selected_properties['median_annual_revenue']:,.0f}")
+
+            with dcol3:
+                st.metric("Average bedrooms", selected_properties["average_no_bedrooms"])
+                st.metric("Average rating", selected_properties["average_rating"])
+                st.metric("POI count", f"{selected_properties['poi_count']:,}")
+                st.metric("POI density", selected_properties["poi_density"])
+            
+            with dcol4:
+                st.metric("Transport count", f"{selected_properties['transport_count']:,}")
+                st.metric("Dining count", f"{selected_properties['dining_count']:,}")
+                st.metric("Area", f"{selected_properties['area']} sqkm")
 
 with map_col2:
     st.subheader('Starred neighbourhoods')
