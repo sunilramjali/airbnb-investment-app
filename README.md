@@ -253,3 +253,85 @@ That's it — the driver runs it in order and records its audit row automaticall
 
 ---
 
+# Silver → Gold (Aggregation) — User Guide
+
+The **gold layer** turns the clean `SILVER.*_CLEANED` tables into the **app-ready** GOLD
+schema: a Kimball **star** (dimensions + facts) plus **denormalised marts** the app reads
+directly. It lives in `etl/aggregation_layer/` and is driven by a single Python file.
+
+### Prerequisites
+
+1. Silver must be built first — run `etl/cleaning_layer/cleaning_layer.py`.
+2. **Change tracking must be enabled** on the SILVER source tables that feed the dynamic
+   tables, or the refresh fails with *"Change tracking is not enabled..."*:
+   ```sql
+   ALTER TABLE SILVER.LISTINGS_CLEANED           SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.CALENDAR_CLEANED           SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.POI_CLEANED                SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.NEIGHBOURHOODS_GEO_CLEANED SET CHANGE_TRACKING = TRUE;
+   ```
+
+### How to run
+
+Open `etl/aggregation_layer/aggregation_layer.py` in a Snowflake Workspace and run it. It
+uses `get_active_session()` (no credentials) on `AIRBNB_APP_WH` and executes, in order:
+
+1. `01_dimensions.sql` — conformed dimensions + generated `DIM_DATE`.
+2. `02_facts.sql` — facts at listing / listing×date grain.
+3. `03_app_marts.sql` — the app-facing consumer marts.
+
+It prints a `COUNT(*)` for every object it builds.
+
+### What it produces
+
+```text
+AIRBNB_INVESTMENT_DB.GOLD
+├── DIM_LISTING            # one row per listing (+ GEO_POINT, STRUCTURE_CLASS)
+├── DIM_HOST               # one row per host
+├── DIM_NEIGHBOURHOOD      # one row per neighbourhood (+ BOUNDARY geography)
+├── DIM_POI                # points of interest
+├── DIM_DATE               # generated calendar dimension (static table)
+├── FCT_LISTING_SNAPSHOT   # per-listing investment metrics (ADR, occupancy, revenue, RevPAR)
+├── FCT_CALENDAR_DAILY     # daily availability per listing (listing × date)
+├── FCT_LISTING_POI        # POI proximity counts per listing (500m)
+│
+├── MART_LISTING           # APP: denormalised per-listing (detail + comparison screens)
+├── MART_AREA              # APP: per-neighbourhood summary + map boundary (area overview)
+└── MART_AREA_STRUCTURE    # APP: neighbourhood × Flat/House + median sale-price cost
+```
+
+### How the app consumes it
+
+The app reads the **GOLD marts only** (`MART_*`), on `AIRBNB_APP_WH`, with **no
+query-time joins** — the marts are already denormalised, one per screen:
+
+| Screen | Mart |
+|--------|------|
+| Home (KPIs + maximiser leaderboards) | `MART_AREA` + `MART_LISTING` |
+| Area Overview (stats + map) | `MART_AREA` |
+| Property Type (Flat vs House + cost) | `MART_AREA_STRUCTURE` |
+| Listing Comparison | `MART_LISTING` |
+
+Two usage notes:
+- **`HAS_REVENUE_DATA`** — 34% of listings have no `price`/revenue in the source scrape.
+  Filter `WHERE HAS_REVENUE_DATA = TRUE` for any revenue-ranked view; the flag keeps the
+  rest visible without fabricating numbers.
+- **Cost benchmark** — `AREA_MEDIAN_SALE_PRICE` (listing) and `MEDIAN_SALE_PRICE` (area)
+  come from HM Land Registry, matched by neighbourhood × Flat/House.
+
+### Refresh model
+
+Gold uses **dynamic tables** so Snowflake refreshes incrementally. The **marts** carry the
+explicit `TARGET_LAG = '1 day'` freshness anchor; the upstream **dims/facts** use
+`TARGET_LAG = DOWNSTREAM` and refresh only as needed to serve the marts.
+(`FCT_CALENDAR_DAILY` keeps its own `'1 day'` lag as nothing consumes it yet.)
+
+### Adding a new gold object
+
+1. Add the `CREATE OR REPLACE DYNAMIC TABLE ...` to the relevant SQL file
+   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts.sql`).
+2. Add its fully-qualified name to that step's `produces` list in `aggregation_layer.py`
+   so the runner verifies its row count.
+
+---
+

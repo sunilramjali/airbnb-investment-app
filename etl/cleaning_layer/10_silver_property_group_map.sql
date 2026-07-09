@@ -1,0 +1,42 @@
+-- Builds SILVER.PROPERTY_GROUP_MAP: lookup mapping each cleaned property_type to a
+-- higher-level property_group category.
+--
+-- Grain : one row per distinct cleaned property_type (from SILVER.LISTINGS_CLEANED).
+-- Source: SILVER.LISTINGS_CLEANED.property_type (already lowercased & prefix-stripped
+--         by 02_silver_listings.sql).
+-- Usage : LEFT JOIN on property_type, wrapped in COALESCE(..., 'Other / Unknown').
+
+USE DATABASE AIRBNB_INVESTMENT_DB;
+USE SCHEMA SILVER;
+
+CREATE OR REPLACE TABLE SILVER.PROPERTY_GROUP_MAP AS
+SELECT
+    property_type,
+    CASE
+        WHEN property_type IN (
+            'rental unit', 'condo', 'serviced apartment', 'aparthotel'
+        ) THEN 'Apartment / Flat'
+        WHEN property_type IN (
+            'home', 'townhouse', 'bungalow', 'villa', 'cottage', 'cabin', 'chalet', 'vacation home'
+        ) THEN 'House'
+        WHEN property_type IN (
+            'guesthouse', 'guest suite', 'bed and breakfast', 'loft'
+        ) THEN 'Guest Accommodation'
+        WHEN property_type IN (
+            'hotel', 'boutique hotel', 'hostel', 'resort', 'nature lodge'
+        ) THEN 'Hotel / Hospitality'
+        WHEN property_type IN (
+            'treehouse', 'boat', 'houseboat', 'tiny home', 'camper/rv', 'yurt', 'castle',
+            'lighthouse', 'cave', 'dome', 'hut', 'shepherd''s hut', 'shepherd’s hut',
+            'barn', 'farm stay', 'shipping container', 'earthen home'
+        ) THEN 'Unique Stay'
+        WHEN property_type IN (
+            'campsite', 'tent'
+        ) THEN 'Outdoor / Land'
+        ELSE 'Other / Unknown'
+    END AS property_group
+FROM (
+    SELECT DISTINCT property_type
+    FROM SILVER.LISTINGS_CLEANED
+    WHERE property_type IS NOT NULL
+);
