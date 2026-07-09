@@ -352,8 +352,7 @@ with st.bottom:
                 neighbourhood = starred_area['neighbourhood']
                 city_name = starred_area['city']
             
-                st.subheader(neighbourhood)
-                st.caption(city_name)
+                st.header(neighbourhood)
             
                 mask = (
                     (ai_summary['persona'].str.lower() == persona.lower())
@@ -366,7 +365,23 @@ with st.bottom:
                 if not matches.empty:
                     narrative_dict = json.loads(matches.iloc[0])
                     investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
+                    key_strengths = narrative_dict.get('key_strengths')
+                    key_risks = narrative_dict.get('key_risks')
+                    confidence = narrative_dict.get('confidence')
+                    recommended_action = narrative_dict.get('recommended_action')
                     st.write(investment_summary)
+                    
+                    st.caption(f"**Key Strengths**")
+                    st.write(f"- {key_strengths[0]}")
+                    st.write(f"- {key_strengths[1]}")
+                    st.write(f"- {key_strengths[2]}")
+                    
+                    st.caption(f"**Key Risks**")
+                    st.write(f"- {key_risks[0]}")
+                    st.write(f"- {key_risks[1]}")
+
+                    st.caption(f"**Recommended Action**")
+                    st.write(recommended_action)
                 else:
                     st.warning('No AI summary found for this persona/neighbourhood combination.')
 
