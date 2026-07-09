@@ -1,4 +1,4 @@
--- Builds the GOLD conformed dimensions (DIM_LISTING with GEO_POINT + STRUCTURE_CLASS, DIM_HOST, DIM_NEIGHBOURHOOD, DIM_POI) and a generated DIM_DATE.
+-- Builds the GOLD conformed dimensions (DIM_LISTING with GEO_POINT + STRUCTURE_CLASS, DIM_HOST, DIM_NEIGHBOURHOOD with CITY, DIM_PROPERTY_GROUP, DIM_POI) and a generated DIM_DATE.
 -- Co-authored with CoCo
 -- ============================================================
 -- GOLD — DIMENSIONS
@@ -58,6 +58,7 @@ SELECT
             THEN 'House'
         ELSE NULL   -- hotel/hostel/boat/tiny home/etc.: excluded from yield
     END                                                    AS STRUCTURE_CLASS,
+    pg.PROPERTY_GROUP,
     l.ACCOMMODATES,
     l.BEDROOMS,
     l.BEDS,
@@ -77,7 +78,44 @@ SELECT
     l.ESTIMATED_REVENUE_L365D,
     l.LISTING_URL,
     l.PICTURE_URL
-FROM SILVER.LISTINGS_CLEANED l;
+FROM SILVER.LISTINGS_CLEANED l
+LEFT JOIN SILVER.PROPERTY_GROUP_MAP pg
+    ON LOWER(TRIM(l.PROPERTY_TYPE)) = LOWER(TRIM(pg.PROPERTY_TYPE));
+
+-- ------------------------------------------------------------
+-- DIM_PROPERTY_GROUP — grain: one row per property group.
+-- Normalised lookup for the property-selection control in the app.
+-- PROPERTY_GROUP is the key; DISPLAY_ORDER drives selector ordering
+-- and DESCRIPTION provides a short blurb per group.
+-- ------------------------------------------------------------
+CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_PROPERTY_GROUP
+    TARGET_LAG = DOWNSTREAM
+    WAREHOUSE  = COMPUTE_WH
+    COMMENT    = 'Property-group dimension (normalised): selection key + display order + description for the app property selector.'
+AS
+SELECT
+    PROPERTY_GROUP,
+    CASE PROPERTY_GROUP
+        WHEN 'Apartment / Flat'     THEN 1
+        WHEN 'House'                THEN 2
+        WHEN 'Guest Accommodation'  THEN 3
+        WHEN 'Hotel / Hospitality'  THEN 4
+        WHEN 'Unique Stay'          THEN 5
+        WHEN 'Outdoor / Land'       THEN 6
+        WHEN 'Other / Unknown'      THEN 7
+        ELSE 99
+    END                                                    AS DISPLAY_ORDER,
+    CASE PROPERTY_GROUP
+        WHEN 'Apartment / Flat'     THEN 'Apartments, condos, serviced apartments and aparthotels.'
+        WHEN 'House'                THEN 'Houses, townhouses, bungalows, cottages, cabins and villas.'
+        WHEN 'Guest Accommodation'  THEN 'Bed & breakfasts, guest suites, guesthouses and lofts.'
+        WHEN 'Hotel / Hospitality'  THEN 'Hotels, boutique hotels, hostels, resorts and lodges.'
+        WHEN 'Unique Stay'          THEN 'Distinctive stays: boats, cabins, treehouses, yurts and more.'
+        WHEN 'Outdoor / Land'       THEN 'Campsites and tents.'
+        WHEN 'Other / Unknown'      THEN 'Uncategorised or ambiguous property types.'
+        ELSE NULL
+    END                                                    AS DESCRIPTION
+FROM (SELECT DISTINCT PROPERTY_GROUP FROM SILVER.PROPERTY_GROUP_MAP);
 
 -- ------------------------------------------------------------
 -- DIM_HOST — grain: one row per host.
@@ -105,17 +143,22 @@ FROM SILVER.LISTINGS_CLEANED
 QUALIFY ROW_NUMBER() OVER (PARTITION BY HOST_ID ORDER BY LAST_SCRAPED DESC NULLS LAST) = 1;
 
 -- ------------------------------------------------------------
--- DIM_NEIGHBOURHOOD — grain: one row per borough.
+-- DIM_NEIGHBOURHOOD — grain: one row per neighbourhood (unique).
 -- Carries the GEOGRAPHY boundary for point-in-polygon attribution.
+-- CITY is derived from the source file path (region segment).
 -- ------------------------------------------------------------
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_NEIGHBOURHOOD
     TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
-    COMMENT    = 'Neighbourhood/borough dimension with GEOGRAPHY boundary + area_sqkm.'
+    COMMENT    = 'Neighbourhood dimension with CITY, GEOGRAPHY boundary + area_sqkm.'
 AS
 SELECT
     NEIGHBOURHOOD,
-    NEIGHBOURHOOD_GROUP,
+    CASE SPLIT_PART(_FILENAME, '/', 3)
+        WHEN 'greater_manchester' THEN 'Greater Manchester'
+        WHEN 'bristol'            THEN 'Bristol'
+        WHEN 'london'             THEN 'London'
+    END                                  AS CITY,
     BOUNDARY,
     AREA_SQKM
 FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED;
