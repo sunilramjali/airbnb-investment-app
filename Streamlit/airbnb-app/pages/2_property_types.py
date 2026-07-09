@@ -4,6 +4,29 @@ import pandas as pd
 import json
 import time
 
+def format_money(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"£{value:,.0f}"
+
+
+def format_number(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.0f}"
+
+
+def format_decimal(value, decimals=2):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.{decimals}f}"
+
+
+def format_percent(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.1f}%"
+
 st.cache_data.clear()
 
 st.set_page_config(layout="wide")
@@ -49,6 +72,9 @@ if "starred_neighbourhoods" not in st.session_state:
 if "selected_property_neighbourhood" not in st.session_state:
     st.session_state["selected_property_neighbourhood"] = None
 
+if "selected_property_city" not in st.session_state:
+    st.session_state["selected_property_city"] = None
+
 if "starred_property_types" not in st.session_state:
     st.session_state["starred_property_types"] = []
 
@@ -69,36 +95,63 @@ def load_property_types(_session):
     return _session.sql(
         """
        SELECT
-            c.CITY,
+            j1.CITY,
             p.NEIGHBOURHOOD,
             p.PROPERTY_GROUP,
-            p.LISTING_COUNT
-            
-        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_GROUP p
-
-        LEFT JOIN (
-        SELECT DISTINCT CITY, NEIGHBOURHOOD
-        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA_POI
-        ) c
+            p.LISTING_COUNT,
+            p.AVG_ADR AS average_adr,
+            p.MEDIAN_ADR AS median_adr,
+            p.AVG_ANNUAL_REVENUE AS average_annual_revenue,
+            p.MEDIAN_ANNUAL_REVENUE AS median_annual_revenue,
+            p.AVG_OCCUPANCY_RATE AS average_occupancy_rate,
+            p.AVG_RATING AS average_rating,
+            p.AVG_BEDROOMS AS average_bedrooms,
+            p.MEDIAN_SALE_PRICE AS median_sale_price,
+            p.SALE_TXN_COUNT AS sale_txn_count,
+            j1.INVESTMENT_SCORE_YIELD,
+            j1.INVESTMENT_SCORE_OCCUPANCY,
+            j1.INVESTMENT_SCORE_QUALITY
+    
+        FROM (
+            SELECT 
+                a.NEIGHBOURHOOD,
+                a.PROPERTY_GROUP,
+                b.CITY,
+                AVG(b.SCORE_YIELD_MAXIMISER) AS INVESTMENT_SCORE_YIELD,
+                AVG(b.SCORE_OCCUPANCY_OPTIMISER) AS INVESTMENT_SCORE_OCCUPANCY,
+                AVG(b.SCORE_QUALITY_HOST) AS INVESTMENT_SCORE_QUALITY
         
-        ON p.NEIGHBOURHOOD = c.NEIGHBOURHOOD
-
-        WHERE p.NEIGHBOURHOOD IS NOT NULL AND p.PROPERTY_GROUP IS NOT NULL AND c.CITY IS NOT NULL
-
-        ORDER BY c.CITY, p.NEIGHBOURHOOD, p.LISTING_COUNT DESC
-        """
+            FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
+        
+            LEFT JOIN TESTER123GOLD.GOLD.INVESTMENT_SCORES b
+            
+            ON a.LISTING_ID = b.LISTING_ID
+        
+            WHERE a.NEIGHBOURHOOD IS NOT NULL AND a.PROPERTY_GROUP IS NOT NULL AND b.CITY IS NOT NULL
+        
+            GROUP BY b.CITY, a.NEIGHBOURHOOD, a.PROPERTY_GROUP
+        ) j1
+        
+        JOIN AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_GROUP p
+        
+        ON p.NEIGHBOURHOOD = j1.NEIGHBOURHOOD AND p.PROPERTY_GROUP = j1.PROPERTY_GROUP
+        
+        WHERE p.NEIGHBOURHOOD IS NOT NULL AND p.PROPERTY_GROUP IS NOT NULL
+        
+        ORDER BY j1.CITY, p.NEIGHBOURHOOD, p.PROPERTY_GROUP;
+            """
     ).to_pandas()
-
-property_types = load_property_types(session)
 
 @st.cache_data(ttl=300)
 def load_summary(_session):
     return _session.sql(
-    """
+        """
         SELECT *
-        FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+FROM TESTER123GOLD.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
+
+property_types = load_property_types(session)
 
 ai_summary = load_summary(session)
 #VISUALISATIONS ---
@@ -129,130 +182,185 @@ else:
                 use_container_width=True
             ):
                 st.session_state["selected_property_neighbourhood"] = neighbourhood_name
+                st.session_state["selected_property_city"] = city_name
 
 
 selected_neighbourhood = st.session_state["selected_property_neighbourhood"]
+selected_city = st.session_state["selected_property_city"]
+persona = st.session_state.get("persona", None)
 
 if selected_neighbourhood is not None:
 
-    neighbourhood_data = property_types[
-        property_types["NEIGHBOURHOOD"] == selected_neighbourhood
-    ].copy()
-
-    if neighbourhood_data.empty:
-        st.warning("No property group data found for this neighbourhood.")
+    if persona is None:
+        st.warning("No persona has been selected yet.")
 
     else:
-        selected_city = neighbourhood_data["CITY"].iloc[0]
+        persona_clean = str(persona).strip().lower()
 
-        st.markdown(f"## {selected_neighbourhood}")
-        st.caption(f"City: {selected_city}")
+        if persona_clean == "yield_maximiser":
+            score_column = "INVESTMENT_SCORE_YIELD"
 
-        st.markdown("### Top 3 property Types")
+        elif persona_clean == "occupancy_optimiser":
+            score_column = "INVESTMENT_SCORE_OCCUPANCY"
 
-        top_3 = neighbourhood_data.sort_values(
-            by = "LISTING_COUNT",
-            ascending=False
-        ).head(3)
+        elif persona_clean == "quality_host":
+            score_column = "INVESTMENT_SCORE_QUALITY"
 
-        top_cols = st.columns(3)
+        else:
+            score_column = None
+            st.warning(f"Unknown persona selected: {persona}")
 
-        for i, row in enumerate(top_3.itertuples()):
-            with top_cols[i]:
+        if score_column is not None:
 
-                with st.container(border=True):
-                    st.markdown(
-                        f"""
-                        ## **{row.PROPERTY_GROUP}**
-                        """
-                    )
+            neighbourhood_data = property_types[
+                (property_types["CITY"].astype(str).str.strip().str.lower() == str(selected_city).strip().lower())
+                & (property_types["NEIGHBOURHOOD"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
+            ].copy()
 
-                    st.metric(
-                        label = "Listings",
-                        value = f"{row.LISTING_COUNT:,.0f}"
-                    )
+            if neighbourhood_data.empty:
+                st.warning("No property group data found for this neighbourhood.")
 
-        st.divider()
+            else:
+                neighbourhood_data = neighbourhood_data.dropna(subset=[score_column])
 
-        all_property_types = neighbourhood_data.sort_values(
-            by="LISTING_COUNT",
-            ascending=False
-        )
+                selected_city = neighbourhood_data["CITY"].iloc[0]
 
-        list_col, starred_col = st.columns([2, 1], gap="medium")
+                st.markdown(f"## {selected_neighbourhood}")
+                st.caption(f"City: {selected_city}")
+                st.caption(f"Ranking based on persona: {persona}")
 
-        with list_col:
-            st.markdown("### All Property Types in this neighbourhood")
+                st.markdown("### Top 3 Property Types")
 
-            for row in all_property_types.itertuples():
-                property_group = row.PROPERTY_GROUP
-                neighbourhood = row.NEIGHBOURHOOD
-                city = row.CITY
-                listing_count = row.LISTING_COUNT
+                top_3 = neighbourhood_data.sort_values(
+                    by=score_column,
+                    ascending=False
+                ).head(3)
 
-                property_item = {
-                    "property_group": property_group,
-                    "neighbourhood": neighbourhood,
-                    "city": city,
-                    "listing_count": listing_count
-                }
+                top_cols = st.columns(3)
 
-                property_key = f"{city}_{neighbourhood}_{property_group}"
+                for i, row in enumerate(top_3.itertuples()):
+                    with top_cols[i]:
 
-                already_starred = any(
-                    f"{item['city']}_{item['neighbourhood']}_{item['property_group']}" == property_key
-                    for item in st.session_state["starred_property_types"]
+                        with st.container(border=True):
+                            st.markdown(f"## **{row.PROPERTY_GROUP}**")
+
+                            st.metric(
+                                label="Investment Score",
+                                value=f"{getattr(row, score_column):,.2f}"
+                            )
+
+                            st.caption(f"Listings: {row.LISTING_COUNT:,.0f}")
+
+                st.divider()
+
+                all_property_types = neighbourhood_data.sort_values(
+                    by=score_column,
+                    ascending=False
                 )
 
-                with st.container(border=True):
-                    row_cols = st.columns([4, 1, 1])
+                list_col, starred_col = st.columns([2, 1], gap="medium")
 
-                    with row_cols[0]:
-                        st.markdown(f"## {property_group}")
+                with list_col:
+                    st.markdown("### All Property Types in this neighbourhood")
 
-                    with row_cols[1]:
-                        st.markdown("**Listings**")
-                        st.write(f"{listing_count:,.0f}")
+                    for row in all_property_types.itertuples():
+                        property_group = row.PROPERTY_GROUP
+                        neighbourhood = row.NEIGHBOURHOOD
+                        city = row.CITY
+                        listing_count = row.LISTING_COUNT
+                        investment_score = getattr(row, score_column)
 
-                    with row_cols[2]:
-                        if already_starred:
-                            st.success("Selected")
-                        else:
-                            if st.button(
-                                "Star",
-                                key=f"star_property_{property_key}",
-                                use_container_width=True
-                            ):
-                                if len(st.session_state["starred_property_types"]) < 3:
-                                    st.session_state["starred_property_types"].append(property_item)
-                                    st.rerun()
-                                else:
-                                    st.warning("You can only star 3 property types.")
+                        property_item = {
+                            "property_group": property_group,
+                            "neighbourhood": neighbourhood,
+                            "city": city,
+                            "listing_count": listing_count,
+                            "investment_score": investment_score,
+                            "persona": persona,
+                            "average_adr": row.AVERAGE_ADR,
+                            "median_adr": row.MEDIAN_ADR,
+                            "average_annual_revenue": row.AVERAGE_ANNUAL_REVENUE,
+                            "median_annual_revenue": row.MEDIAN_ANNUAL_REVENUE,
+                            "average_occupancy_rate": row.AVERAGE_OCCUPANCY_RATE,
+                            "average_rating": row.AVERAGE_RATING,
+                            "average_bedrooms": row.AVERAGE_BEDROOMS,
+                            "median_sale_price": row.MEDIAN_SALE_PRICE,
+                            "sale_txn_count": row.SALE_TXN_COUNT
+                        }
 
-        with starred_col:
-            with st.container(border=True):
-                st.markdown("### Starred Property Types")
-        
-                starred_property_types = st.session_state["starred_property_types"]
-        
-                if len(starred_property_types) == 0:
-                    st.info("No property types starred yet.")
-                else:
-                    for i, item in enumerate(starred_property_types):
+                        property_key = f"{city}_{neighbourhood}_{property_group}_{persona}"
+
+                        already_starred = any(
+                            f"{item['city']}_{item['neighbourhood']}_{item['property_group']}_{item.get('persona', '')}" == property_key
+                            for item in st.session_state["starred_property_types"]
+                        )
+
                         with st.container(border=True):
-                            st.markdown(f"### ⭐ {item['property_group']}")
-                            st.markdown(f"**{item['neighbourhood']}**")
-                            st.caption(item["city"])
-        
-                            if st.button(
-                                "Remove",
-                                key=f"remove_starred_property_{i}_{item['city']}_{item['neighbourhood']}_{item['property_group']}",
-                                use_container_width=True
-                            ):
-                                st.session_state["starred_property_types"].pop(i)
-                                st.rerun()
-        
-                st.caption(f"{len(starred_property_types)} / 3 selected")
+                            row_cols = st.columns([2.4, 1.8, 2.2, 1])
+
+                            with row_cols[0]:
+                                st.markdown(f"## {property_group}")
+                        
+                            with row_cols[1]:
+                                st.markdown("### Performance")
+                                st.write(f"**Investment Score:** {format_decimal(investment_score, 2)}")
+                                st.write(f"**Listings:** {format_number(listing_count)}")
+                                st.write(f"**Avg Occupancy:** {format_percent(row.AVERAGE_OCCUPANCY_RATE)}")
+                                st.write(f"**Avg Rating:** {format_decimal(row.AVERAGE_RATING, 2)}")
+                                st.write(f"**Avg Bedrooms:** {format_decimal(row.AVERAGE_BEDROOMS, 1)}")
+                            
+                            with row_cols[2]:
+                                st.markdown("### Financials")
+                                st.write(f"**Avg ADR:** {format_money(row.AVERAGE_ADR)}")
+                                st.write(f"**Median ADR:** {format_money(row.MEDIAN_ADR)}")
+                                st.write(f"**Avg Annual Revenue:** {format_money(row.AVERAGE_ANNUAL_REVENUE)}")
+                                st.write(f"**Median Annual Revenue:** {format_money(row.MEDIAN_ANNUAL_REVENUE)}")
+                                st.write(f"**Median Sale Price:** {format_money(row.MEDIAN_SALE_PRICE)}")
+                                st.write(f"**Sale Transactions:** {format_number(row.SALE_TXN_COUNT)}")
+                        
+                            with row_cols[3]:
+                                if already_starred:
+                                    st.success("Selected")
+                                else:
+                                    if st.button(
+                                        "Star",
+                                        key=f"star_property_{property_key}",
+                                        use_container_width=True
+                                    ):
+                                        if len(st.session_state["starred_property_types"]) < 3:
+                                            st.session_state["starred_property_types"].append(property_item)
+                                            st.rerun()
+                                        else:
+                                            st.warning("You can only star 3 property types.")
+
+                with starred_col:
+                    with st.container(border=True):
+                        st.markdown("### Starred Property Types")
+
+                        starred_property_types = st.session_state["starred_property_types"]
+
+                        if len(starred_property_types) == 0:
+                            st.info("No property types starred yet.")
+
+                        else:
+                            for i, item in enumerate(starred_property_types):
+                                with st.container(border=True):
+                                    st.markdown(f"### ⭐ {item['property_group']}")
+                                    st.markdown(f"**{item['neighbourhood']}**")
+                                    st.caption(item["city"])
+
+                                    if "investment_score" in item:
+                                        st.caption(f"Investment Score: {item['investment_score']:,.2f}")
+
+                                    if st.button(
+                                        "Remove",
+                                        key=f"remove_starred_property_{i}_{item['city']}_{item['neighbourhood']}_{item['property_group']}",
+                                        use_container_width=True
+                                    ):
+                                        st.session_state["starred_property_types"].pop(i)
+                                        st.rerun()
+
+                        st.caption(f"{len(starred_property_types)} / 3 selected")
 
 #---
 with st.bottom:

@@ -90,7 +90,7 @@ ai_summary = load_summary(session)
 
 #INTERACTIVE ELEMENTS ---
 
-city = st.sidebar.selectbox('City',('All','London','Bristol','Manchester'))
+city = st.sidebar.selectbox('City',('All','London','Bristol','Greater Manchester'))
 
 if city == 'All':
     filtered_neighbourhoods = neighbourhoods
