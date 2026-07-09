@@ -5,6 +5,8 @@ import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
 
+#st.write("Checking 1 2 3")
+
 st.cache_data.clear()
 
 st.set_page_config(layout = 'wide')

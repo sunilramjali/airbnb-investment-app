@@ -136,7 +136,7 @@ def load_property_types(_session):
         
         ON p.NEIGHBOURHOOD = j1.NEIGHBOURHOOD AND p.PROPERTY_GROUP = j1.PROPERTY_GROUP
         
-        WHERE p.NEIGHBOURHOOD IS NOT NULL AND p.PROPERTY_GROUP IS NOT NULL
+        WHERE p.NEIGHBOURHOOD IS NOT NULL AND p.PROPERTY_GROUP IS NOT NULL AND LOWER(TRIM(p.PROPERTY_GROUP)) != 'other / unknown'
         
         ORDER BY j1.CITY, p.NEIGHBOURHOOD, p.PROPERTY_GROUP;
             """
@@ -154,6 +154,7 @@ FROM TESTER123GOLD.GOLD.AI_OUTPUTS
 property_types = load_property_types(session)
 
 ai_summary = load_summary(session)
+
 #VISUALISATIONS ---
 starred_neighbourhoods = st.session_state["starred_neighbourhoods"]
 
@@ -367,54 +368,66 @@ with st.bottom:
     with st.expander("AI Summary"):
 
         persona = st.session_state.get("persona", None)
-        starred_property_types = st.session_state.get("starred_property_types", [])
+        selected_neighbourhood = st.session_state.get("selected_property_neighbourhood", None)
+        selected_city = st.session_state.get("selected_property_city", None)
 
         if persona is None:
             st.warning("No persona has been selected yet.")
 
-        elif len(starred_property_types) == 0:
-            st.warning("No starred property types selected yet.")
-
-        elif len(starred_property_types) != 3:
-            st.warning("Please select exactly 3 property types before viewing the AI summary.")
+        elif selected_neighbourhood is None:
+            st.warning("No neighbourhood has been selected yet.")
 
         else:
             st.write("This is your AI summary using persona:", persona)
 
-            for starred_property in starred_property_types:
+            st.header(selected_neighbourhood)
 
-                property_group = starred_property["property_group"]
-                neighbourhood = starred_property["neighbourhood"]
-                city_name = starred_property["city"]
+            mask = (
+                (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
+                & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
+                & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
+            )
 
-                st.subheader(property_group)
-                st.caption(f"{neighbourhood}, {city_name}")
+            matches = ai_summary.loc[mask, "ai_narrative"]
 
-                mask = (
-                    (ai_summary["persona"].str.lower() == persona.lower())
-                    & (ai_summary["neighbourhood_cleansed"].str.lower() == neighbourhood.lower())
-                    & (ai_summary["output_type"].str.lower() == "recommendation")
-                )
+            if not matches.empty:
+                narrative_dict = json.loads(matches.iloc[0])
 
-                matches = ai_summary.loc[mask, "ai_narrative"]
-
-                if not matches.empty:
-                    narrative_dict = json.loads(matches.iloc[0])
-
-                    recommendation_summary = narrative_dict.get(
-                        "recommendation_summary",
+                recommendation_summary = narrative_dict.get(
+                    "recommendation_summary",
+                    narrative_dict.get(
+                        "investment_summary",
                         narrative_dict.get(
-                            "investment_summary",
-                            narrative_dict.get(
-                                "summary",
-                                "No recommendation summary available."
-                            )
+                            "summary",
+                            "No recommendation summary available."
                         )
                     )
+                )
+            
+                top_pick = narrative_dict.get("top_pick", None)
+                top_pick_reason = narrative_dict.get("top_pick_reason", None)
+                second_pick = narrative_dict.get("second_pick", None)
+                second_pick_reason = narrative_dict.get("second_pick_reason", None)
+                what_to_avoid = narrative_dict.get("what_to_avoid", None)
+            
+                st.write(recommendation_summary)
+            
+                st.subheader("**Top Pick**")
+                st.write(f"**{top_pick}**")
+            
+                st.caption("Reason:")
+                st.write(top_pick_reason)
+            
+                st.subheader("**Second Pick**")
+                st.write(f"**{second_pick}**")
 
-                    st.write(recommendation_summary)
+                st.caption("Reason:")
+                st.write(second_pick_reason)
 
-                else:
-                    st.warning(
-                        "No AI recommendation found for this persona/neighbourhood combination."
-                    )
+                st.subheader("**What to Avoid**")
+                st.write(what_to_avoid)
+            
+            else:
+                st.warning(
+                    "No AI recommendation found for this persona/neighbourhood combination."
+                )
