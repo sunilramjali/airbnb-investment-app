@@ -1,0 +1,10 @@
+definition_version: 2
+entities:
+  streamlit_app:
+    type: streamlit
+    main_file: landing.py
+    artifacts:
+      - pyproject.toml
+      - landing.py
+      - .streamlit/config.toml
+      - pages/
