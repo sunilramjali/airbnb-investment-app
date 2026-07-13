@@ -46,7 +46,7 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 |-------|------------------|-------|----------------|
 | Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT` |
 | Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP` |
-| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_POI`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `MART_LISTING`, `MART_AREA`, `MART_AREA_STRUCTURE` |
+| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `MART_LISTING_CANDIDATES`, `MART_AREA_OVERVIEW`, `MART_PROPERTY_GROUP`, `MART_AREA_POI` |
 
 ---
 
@@ -92,7 +92,7 @@ airbnb-investment-app/
 │   ├── 00_setup_api_integration.sql
 │   └── 01_setup_database_and_warehouse.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze + Silver EXIST)
+├── etl/                 # the pipeline, by layer (Bronze + Silver + Gold EXIST)
 │   ├── ingestion_layer/
 │   │   ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
 │   │   ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
@@ -100,13 +100,16 @@ airbnb-investment-app/
 │   │   ├── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
 │   │   ├── 05_overture_poi_load.sql    # Overture Places POIs (Marketplace share; scoped to boroughs)
 │   │   └── 06_code_point_load.sql      # OS Code-Point Open postcodes (Marketplace share; full GB copy)
-│   └── cleaning_layer/                 # Silver transforms, driven by cleaning_layer.py
-│       ├── 01_silver_ddl.sql           # SILVER schema + CLEAN_AUDIT
-│       ├── 02..07_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid
-│       ├── 08_silver_poi.sql           # Overture POIs -> investment-relevant amenities
-│       ├── 09_silver_code_point.sql    # postcodes -> normalized POSTCODE_KEY reference
-│       └── 10_silver_property_group_map.sql  # property_type -> property_group lookup
-│   # aggregation_layer/ (later)  sales x postcode  ·  gold/ (later)  features / scoring
+│   ├── cleaning_layer/                 # Silver transforms, driven by cleaning_layer.py
+│   │   ├── 01_silver_ddl.sql           # SILVER schema + CLEAN_AUDIT
+│   │   ├── 02..07_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid
+│   │   ├── 08_silver_poi.sql           # Overture POIs -> investment-relevant amenities
+│   │   ├── 09_silver_code_point.sql    # postcodes -> normalized POSTCODE_KEY reference
+│   │   └── 10_silver_property_group_map.sql  # property_type -> property_group lookup
+│   └── aggregation_layer/              # Gold star + app marts, driven by aggregation_layer.py
+│       ├── 01_dimensions.sql           # DIM_* conformed dimensions + generated DIM_DATE
+│       ├── 02_facts.sql                # FCT_* at listing / listing x date grain
+│       └── 03_app_marts.sql            # MART_* denormalised consumer layer (app reads these)
 │
 ├── notebooks/ (later)  # exploration + running the pipeline
 │   └── preprocessing_layer.ipynb  (planned)
@@ -132,7 +135,7 @@ airbnb-investment-app/
   folder. See `data_sources.md` for where the raw files came from.
 - **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
 - **`setup/`** — one-time database, warehouse, and integration setup.
-- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning today; Gold later).
+- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning + Gold aggregation today).
 - **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
 - **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
   `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).

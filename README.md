@@ -68,6 +68,15 @@ independent source that lands in the same `BRONZE` schema (see its section below
 |---|------|------|------|
 | 5 | Create Land Registry format + stage | `etl/ingestion_layer/03_land_registry_ddl.sql` | once |
 | 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
+| 7 | Load Overture Places POIs into Bronze | `etl/ingestion_layer/05_overture_poi_load.sql` | every load |
+| 8 | Load OS Code-Point postcodes into Bronze | `etl/ingestion_layer/06_code_point_load.sql` | every load |
+
+Once Bronze is loaded, build the upper layers:
+
+| # | Step | File | When |
+|---|------|------|------|
+| 9 | Build Silver (`*_CLEANED` tables) | `etl/cleaning_layer/cleaning_layer.py` | every build |
+| 10 | Build Gold (star + app marts) | `etl/aggregation_layer/aggregation_layer.py` | every build |
 
 Current project database and warehouses:
 
@@ -197,7 +206,9 @@ Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
 It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
 1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
-2. `02_silver_listings.sql` → `07_silver_price_paid.sql` — one cleaning transform each.
+2. `02_silver_listings.sql` → `10_silver_property_group_map.sql` — one cleaning transform
+   each (listings, calendar, reviews, neighbourhoods, neighbourhoods-geo, price-paid, POI,
+   code-point, property-group map).
 
 ### What it produces
 
@@ -209,6 +220,9 @@ AIRBNB_INVESTMENT_DB.SILVER
 ├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
 ├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
 ├── PRICE_PAID_CLEANED           # from BRONZE.RAW_PRICE_PAID (HM Land Registry; London/Manchester/Bristol only)
+├── POI_CLEANED                  # from BRONZE.RAW_OVERTURE_POI (investment-relevant amenities + GEOGRAPHY)
+├── CODE_POINT_CLEANED           # from BRONZE.RAW_CODE_POINT (postcodes -> normalized POSTCODE_KEY)
+├── PROPERTY_GROUP_MAP           # property_type -> property_group lookup
 └── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
 
@@ -286,18 +300,20 @@ It prints a `COUNT(*)` for every object it builds.
 
 ```text
 AIRBNB_INVESTMENT_DB.GOLD
-├── DIM_LISTING            # one row per listing (+ GEO_POINT, STRUCTURE_CLASS)
+├── DIM_LISTING            # one row per listing (+ GEO_POINT, STRUCTURE_CLASS, PROPERTY_GROUP)
 ├── DIM_HOST               # one row per host
-├── DIM_NEIGHBOURHOOD      # one row per neighbourhood (+ BOUNDARY geography)
-├── DIM_POI                # points of interest
+├── DIM_NEIGHBOURHOOD      # one row per neighbourhood (+ CITY, BOUNDARY geography, AREA_SQKM)
+├── DIM_PROPERTY_GROUP     # the 7 property groups (selection lookup)
+├── DIM_POI                # points of interest (+ LOCATION geography)
 ├── DIM_DATE               # generated calendar dimension (static table)
 ├── FCT_LISTING_SNAPSHOT   # per-listing investment metrics (ADR, occupancy, revenue, RevPAR)
 ├── FCT_CALENDAR_DAILY     # daily availability per listing (listing × date)
 ├── FCT_LISTING_POI        # POI proximity counts per listing (500m)
 │
-├── MART_LISTING           # APP: denormalised per-listing (detail + comparison screens)
-├── MART_AREA              # APP: per-neighbourhood summary + map boundary (area overview)
-└── MART_AREA_STRUCTURE    # APP: neighbourhood × Flat/House + median sale-price cost
+├── MART_LISTING_CANDIDATES # APP: denormalised per-listing (detail + comparison screens)
+├── MART_AREA_OVERVIEW      # APP: per-neighbourhood summary + map boundary (area overview)
+├── MART_PROPERTY_GROUP     # APP: neighbourhood × property group (+ median sale-price cost)
+└── MART_AREA_POI           # APP: per-POI map markers inside each neighbourhood
 ```
 
 ### How the app consumes it
@@ -307,10 +323,10 @@ query-time joins** — the marts are already denormalised, one per screen:
 
 | Screen | Mart |
 |--------|------|
-| Home (KPIs + maximiser leaderboards) | `MART_AREA` + `MART_LISTING` |
-| Area Overview (stats + map) | `MART_AREA` |
-| Property Type (Flat vs House + cost) | `MART_AREA_STRUCTURE` |
-| Listing Comparison | `MART_LISTING` |
+| Home (KPIs + maximiser leaderboards) | `MART_AREA_OVERVIEW` + `MART_LISTING_CANDIDATES` |
+| Area Overview (stats + map) | `MART_AREA_OVERVIEW` + `MART_AREA_POI` (map markers) |
+| Property selection (per group + cost) | `MART_PROPERTY_GROUP` |
+| Listing Comparison | `MART_LISTING_CANDIDATES` |
 
 Two usage notes:
 - **`HAS_REVENUE_DATA`** — 34% of listings have no `price`/revenue in the source scrape.

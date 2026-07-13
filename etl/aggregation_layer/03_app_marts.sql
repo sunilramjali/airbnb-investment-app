@@ -113,7 +113,7 @@ LEFT JOIN area_cost c
 -- MART_AREA_OVERVIEW — grain: one row per NEIGHBOURHOOD.
 -- Area Overview screen: KPIs + GEOGRAPHY boundary for the map.
 -- ============================================================
-CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA
+CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_OVERVIEW
     TARGET_LAG = '1 day'
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready per-neighbourhood summary: CITY, listing counts, revenue/occupancy aggregates, median sale price, in-area POI counts, and boundary GEOGRAPHY for mapping.'
@@ -346,4 +346,3 @@ SELECT
 FROM GOLD.DIM_NEIGHBOURHOOD n
 JOIN GOLD.DIM_POI p
     ON ST_CONTAINS(n.BOUNDARY, p.LOCATION);
-
