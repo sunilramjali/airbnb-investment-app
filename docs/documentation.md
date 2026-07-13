@@ -145,10 +145,11 @@ data/gold/mart_area_structure.csv
 > README "Silver → Gold (Aggregation) — User Guide" for how to run it and what it produces.
 >
 > The real GOLD objects are a Kimball **star** — `DIM_LISTING`, `DIM_HOST`,
-> `DIM_NEIGHBOURHOOD`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`,
-> `FCT_LISTING_POI` — plus the **app-facing marts** the Streamlit app reads directly:
-> `MART_LISTING` (per-listing), `MART_AREA` (per-neighbourhood + map boundary), and
-> `MART_AREA_STRUCTURE` (neighbourhood × Flat/House + median sale-price cost). They are
+> `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`,
+> `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI` — plus the **app-facing marts** the Streamlit app
+> reads directly: `MART_LISTING_CANDIDATES` (per-listing), `MART_AREA_OVERVIEW`
+> (per-neighbourhood + map boundary), `MART_PROPERTY_GROUP` (neighbourhood × property group +
+> median sale-price cost), and `MART_AREA_POI` (per-POI map markers). They are
 > **dynamic tables**, refreshed incrementally (marts anchor `TARGET_LAG='1 day'`; dims/facts
 > use `DOWNSTREAM`).
 

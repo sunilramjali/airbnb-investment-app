@@ -113,7 +113,7 @@ LEFT JOIN area_cost c
 -- MART_AREA_OVERVIEW — grain: one row per NEIGHBOURHOOD.
 -- Area Overview screen: KPIs + GEOGRAPHY boundary for the map.
 -- ============================================================
-CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA
+CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_OVERVIEW
     TARGET_LAG = '1 day'
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready per-neighbourhood summary: CITY, listing counts, revenue/occupancy aggregates, median sale price, in-area POI counts, and boundary GEOGRAPHY for mapping.'
@@ -184,17 +184,31 @@ LEFT JOIN area_poi ap
 
 -- ============================================================
 -- MART_PROPERTY_GROUP — grain: NEIGHBOURHOOD x PROPERTY_GROUP.
--- Property selection screen: aggregates per property group, with a
--- median sale-price cost where the group maps to a Land Registry
--- structure (Apartment/Flat -> Flat, House -> House). Other groups
--- (Hotel, Unique Stay, etc.) have no sale-price basis (NULL cost).
--- PROPERTY_GROUP is the selection key; group details live in
--- DIM_PROPERTY_GROUP (normalised).
+-- Property selection screen: pick a neighbourhood, then see each of the
+-- 7 property groups. Every (neighbourhood, group) combo is emitted via a
+-- scaffold, so groups with no listings in the area still appear
+-- (LISTING_COUNT = 0, HAS_LOCAL_DATA = FALSE) instead of vanishing.
+--
+-- Three tiers of averages, kept as SEPARATE columns so the app never
+-- shows a wider figure disguised as a local one:
+--   * AVG_*      — true neighbourhood x group average (primary), always
+--                  paired with LISTING_COUNT so reliability is visible.
+--   * CITY_AVG_* — city x group benchmark (Greater Manchester / Bristol /
+--                  London), for fallback when local data is thin/absent.
+--   * ALL_AVG_*  — group benchmark across all neighbourhoods.
+-- The app shows AVG_* (LISTING_COUNT) as headline and falls back to
+-- CITY_AVG_* / ALL_AVG_* with an explicit "wider area" label when
+-- HAS_LOCAL_DATA is FALSE or the count is low.
+--
+-- Median sale-price cost is joined where the group maps to a Land
+-- Registry structure (Apartment/Flat -> Flat, House -> House); other
+-- groups have no sale-price basis (NULL cost). PROPERTY_GROUP is the
+-- selection key; group details live in DIM_PROPERTY_GROUP (normalised).
 -- ============================================================
 CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_PROPERTY_GROUP
     TARGET_LAG = '1 day'
     WAREHOUSE  = AIRBNB_APP_WH
-    COMMENT    = 'App-ready neighbourhood x property group summary: revenue/occupancy aggregates plus Land Registry median sale price where the group maps to Flat/House.'
+    COMMENT    = 'App-ready neighbourhood x property group summary: all 7 groups per neighbourhood with true local averages + count, city and all-areas benchmark averages, HAS_LOCAL_DATA flag, and Land Registry median sale price where the group maps to Flat/House.'
 AS
 WITH area_cost AS (
     SELECT area_name, structure_class, MEDIAN(price) AS median_sale_price, COUNT(*) AS sale_count
@@ -213,29 +227,100 @@ WITH area_cost AS (
     ) m
     WHERE src.PROPERTY_TYPE_CODE IN ('F','D','S','T')
     GROUP BY area_name, structure_class
+),
+-- All neighbourhood x group combinations (108 x 7). CITY carried through
+-- for the city-level benchmark join and app filtering.
+scaffold AS (
+    SELECT n.NEIGHBOURHOOD, n.CITY, g.PROPERTY_GROUP
+    FROM GOLD.DIM_NEIGHBOURHOOD n
+    CROSS JOIN GOLD.DIM_PROPERTY_GROUP g
+),
+-- Tier 1: true neighbourhood x group aggregates.
+local_agg AS (
+    SELECT
+        m.NEIGHBOURHOOD,
+        m.PROPERTY_GROUP,
+        COUNT(*)                        AS LISTING_COUNT,
+        ROUND(AVG(m.ADR), 2)            AS AVG_ADR,
+        MEDIAN(m.ADR)                   AS MEDIAN_ADR,
+        ROUND(AVG(m.OCCUPANCY_RATE), 4) AS AVG_OCCUPANCY_RATE,
+        ROUND(AVG(m.ANNUAL_REVENUE), 2) AS AVG_ANNUAL_REVENUE,
+        MEDIAN(m.ANNUAL_REVENUE)        AS MEDIAN_ANNUAL_REVENUE,
+        ROUND(AVG(m.BEDROOMS), 2)       AS AVG_BEDROOMS,
+        ROUND(AVG(m.REVIEW_SCORES_RATING), 2) AS AVG_RATING
+    FROM GOLD.MART_LISTING_CANDIDATES m
+    WHERE m.PROPERTY_GROUP IS NOT NULL
+    GROUP BY m.NEIGHBOURHOOD, m.PROPERTY_GROUP
+),
+-- Tier 2: city x group benchmark (CITY sourced from DIM_NEIGHBOURHOOD).
+city_agg AS (
+    SELECT
+        n.CITY,
+        m.PROPERTY_GROUP,
+        COUNT(*)                        AS CITY_LISTING_COUNT,
+        ROUND(AVG(m.ADR), 2)            AS CITY_AVG_ADR,
+        ROUND(AVG(m.OCCUPANCY_RATE), 4) AS CITY_AVG_OCCUPANCY_RATE,
+        ROUND(AVG(m.ANNUAL_REVENUE), 2) AS CITY_AVG_ANNUAL_REVENUE
+    FROM GOLD.MART_LISTING_CANDIDATES m
+    JOIN GOLD.DIM_NEIGHBOURHOOD n
+        ON m.NEIGHBOURHOOD = n.NEIGHBOURHOOD
+    WHERE m.PROPERTY_GROUP IS NOT NULL
+    GROUP BY n.CITY, m.PROPERTY_GROUP
+),
+-- Tier 3: group benchmark across all neighbourhoods.
+all_agg AS (
+    SELECT
+        m.PROPERTY_GROUP,
+        COUNT(*)                        AS ALL_LISTING_COUNT,
+        ROUND(AVG(m.ADR), 2)            AS ALL_AVG_ADR,
+        ROUND(AVG(m.OCCUPANCY_RATE), 4) AS ALL_AVG_OCCUPANCY_RATE,
+        ROUND(AVG(m.ANNUAL_REVENUE), 2) AS ALL_AVG_ANNUAL_REVENUE
+    FROM GOLD.MART_LISTING_CANDIDATES m
+    WHERE m.PROPERTY_GROUP IS NOT NULL
+    GROUP BY m.PROPERTY_GROUP
 )
 SELECT
-    m.NEIGHBOURHOOD,
-    m.PROPERTY_GROUP,
-    COUNT(*)                        AS LISTING_COUNT,
-    ROUND(AVG(m.ADR), 2)            AS AVG_ADR,
-    MEDIAN(m.ADR)                   AS MEDIAN_ADR,
-    ROUND(AVG(m.OCCUPANCY_RATE), 4) AS AVG_OCCUPANCY_RATE,
-    ROUND(AVG(m.ANNUAL_REVENUE), 2) AS AVG_ANNUAL_REVENUE,
-    MEDIAN(m.ANNUAL_REVENUE)        AS MEDIAN_ANNUAL_REVENUE,
-    ROUND(AVG(m.BEDROOMS), 2)       AS AVG_BEDROOMS,
-    ROUND(AVG(m.REVIEW_SCORES_RATING), 2) AS AVG_RATING,
+    s.NEIGHBOURHOOD,
+    s.CITY,
+    s.PROPERTY_GROUP,
+    -- Tier 1: local (primary)
+    COALESCE(la.LISTING_COUNT, 0)   AS LISTING_COUNT,
+    (COALESCE(la.LISTING_COUNT, 0) > 0) AS HAS_LOCAL_DATA,
+    la.AVG_ADR,
+    la.MEDIAN_ADR,
+    la.AVG_OCCUPANCY_RATE,
+    la.AVG_ANNUAL_REVENUE,
+    la.MEDIAN_ANNUAL_REVENUE,
+    la.AVG_BEDROOMS,
+    la.AVG_RATING,
+    -- Tier 2: city benchmark
+    ca.CITY_LISTING_COUNT,
+    ca.CITY_AVG_ADR,
+    ca.CITY_AVG_OCCUPANCY_RATE,
+    ca.CITY_AVG_ANNUAL_REVENUE,
+    -- Tier 3: all-areas benchmark
+    aa.ALL_LISTING_COUNT,
+    aa.ALL_AVG_ADR,
+    aa.ALL_AVG_OCCUPANCY_RATE,
+    aa.ALL_AVG_ANNUAL_REVENUE,
+    -- Cost benchmark (Flat/House only)
     c.median_sale_price             AS MEDIAN_SALE_PRICE,
     c.sale_count                    AS SALE_TXN_COUNT
-FROM GOLD.MART_LISTING_CANDIDATES m
+FROM scaffold s
+LEFT JOIN local_agg la
+    ON s.NEIGHBOURHOOD = la.NEIGHBOURHOOD
+   AND s.PROPERTY_GROUP = la.PROPERTY_GROUP
+LEFT JOIN city_agg ca
+    ON s.CITY = ca.CITY
+   AND s.PROPERTY_GROUP = ca.PROPERTY_GROUP
+LEFT JOIN all_agg aa
+    ON s.PROPERTY_GROUP = aa.PROPERTY_GROUP
 LEFT JOIN area_cost c
-    ON UPPER(TRIM(m.NEIGHBOURHOOD)) = c.area_name
+    ON UPPER(TRIM(s.NEIGHBOURHOOD)) = c.area_name
    AND CASE
-           WHEN m.PROPERTY_GROUP = 'Apartment / Flat' THEN 'Flat'
-           WHEN m.PROPERTY_GROUP = 'House'            THEN 'House'
-       END = c.structure_class
-WHERE m.PROPERTY_GROUP IS NOT NULL
-GROUP BY m.NEIGHBOURHOOD, m.PROPERTY_GROUP, c.median_sale_price, c.sale_count;
+           WHEN s.PROPERTY_GROUP = 'Apartment / Flat' THEN 'Flat'
+           WHEN s.PROPERTY_GROUP = 'House'            THEN 'House'
+       END = c.structure_class;
 
 -- ============================================================
 -- MART_AREA_POI — grain: one row per POI inside a neighbourhood.
@@ -261,4 +346,3 @@ SELECT
 FROM GOLD.DIM_NEIGHBOURHOOD n
 JOIN GOLD.DIM_POI p
     ON ST_CONTAINS(n.BOUNDARY, p.LOCATION);
-
