@@ -7,8 +7,6 @@ from snowflake.snowpark.functions import st_x, st_y
 
 #st.write("Checking 1 2 3")
 
-st.cache_data.clear()
-
 st.set_page_config(layout = 'wide')
 
 if 'starred_neighbourhoods' not in st.session_state:
@@ -53,15 +51,15 @@ def load_neighbourhoods(_session, persona):
             n.TRANSPORT_COUNT AS transport_count,
             n.DINING_COUNT AS dining_count,
             n.AREA_SQKM AS area,
-            ST_ASGEOJSON(n.BOUNDARY) as boundary,
-            ST_Y(ST_CENTROID(n.BOUNDARY)) as lat,
-            ST_X(ST_CENTROID(n.BOUNDARY)) as lon,
+            ST_ASGEOJSON(ST_SIMPLIFY(n.BOUNDARY, 50)) as boundary,
+            ST_Y(ST_CENTROID(ST_SIMPLIFY(n.BOUNDARY, 50))) as lat,
+            ST_X(ST_CENTROID(ST_SIMPLIFY(n.BOUNDARY, 50))) as lon,
             l."investment_score" AS INVESTMENT_SCORE,
             ROW_NUMBER() OVER (ORDER BY l."investment_score" DESC) AS INVESTMENT_RANK
         
-        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA n
+        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA_OVERVIEW n
         
-        JOIN  TESTER123GOLD.GOLD.AI_OUTPUTS l
+        JOIN  AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS l
         
         ON lower(n.neighbourhood) = lower(l."neighbourhood_cleansed")
 
@@ -76,7 +74,7 @@ def load_summary(_session):
     return _session.sql(
     """
         SELECT *
-        FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 

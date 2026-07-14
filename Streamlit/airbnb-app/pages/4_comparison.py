@@ -6,8 +6,6 @@ session = conn.session()
 
 #TITLE ---
 
-st.cache_data.clear()
-
 st.title('Recommendations')
 
 @st.cache_data(ttl=600)

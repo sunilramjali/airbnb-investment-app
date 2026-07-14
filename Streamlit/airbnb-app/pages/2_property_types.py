@@ -27,8 +27,6 @@ def format_percent(value):
         return "N/A"
     return f"{value:,.1f}%"
 
-st.cache_data.clear()
-
 st.set_page_config(layout="wide")
 
 st.markdown(
@@ -123,7 +121,7 @@ def load_property_types(_session):
         
             FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
         
-            LEFT JOIN TESTER123GOLD.GOLD.INVESTMENT_SCORES b
+            LEFT JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
             
             ON a.LISTING_ID = b.LISTING_ID
         
@@ -147,7 +145,7 @@ def load_summary(_session):
     return _session.sql(
         """
         SELECT *
-FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 

@@ -90,7 +90,7 @@ def load_listings(_session):
                 
                 FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
                 
-                INNER JOIN TESTER123GOLD.GOLD.INVESTMENT_SCORES b
+                INNER JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
                     ON a.LISTING_ID = b.LISTING_ID
                 
                 WHERE 
@@ -107,7 +107,7 @@ def load_summary(_session):
     return _session.sql(
         """
         SELECT *
-FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
