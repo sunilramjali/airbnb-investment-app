@@ -83,6 +83,9 @@ STEPS = [
             "GOLD.MART_AREA_OVERVIEW",
             "GOLD.MART_PROPERTY_GROUP",
             "GOLD.MART_AREA_POI",
+            "GOLD.MART_AREA_SEASONAL",
+            "GOLD.MART_AREA_STRATEGY",
+            "GOLD.MART_AREA_STRATEGY_BEDROOMS",
         ],
     },
 ]
