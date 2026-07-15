@@ -88,8 +88,7 @@ neighbourhoods = load_neighbourhoods(session, persona)
 
 ai_summary = load_summary(session)
 
-#INTERACTIVE ELEMENTS ---
-
+#Sidebar filter ---
 city = st.sidebar.selectbox('City',('All','London','Bristol','Greater Manchester'))
 
 if city == 'All':
@@ -99,23 +98,7 @@ else:
 
 st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].tolist()
 
-#area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
-
 #VISUALISATIONS ---
-#col1,col2,col3,col4,col5 = st.columns(5,border=True)
-
-#with col1:
- #   st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
-#with col2:
- #   st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
-#with col3:
- #   st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
-#with col4:
- #   st.write('Nighlife Venues: TBC')
-#with col5:
- #   st.write('Tourist Attractions: TBC')
-
-
 acol1, acol2, acol3 = st.columns([1, 1, 1], border=True)
 
 def find_best_neighbourhoods(index):
@@ -144,7 +127,7 @@ with acol2:
 with acol3:
     find_best_neighbourhoods(2)
 
-#Experimenting with pydeck map ---
+#Pydeck map ---
 #CALCULATE CENTROIDS FOR THE BOUNDARIES
 neighbourhoods_center_lat = filtered_neighbourhoods['LAT'].mean()
 neighbourhoods_center_lon = filtered_neighbourhoods['LON'].mean()
@@ -327,7 +310,7 @@ with map_col2:
                 st.caption(city_name)
         
             with star_col2:
-                if st.button('Remove', key='remove_' + city_name + '_' + neighbourhood):
+                if st.button('🗑️', key='remove_' + city_name + '_' + neighbourhood):
                     st.session_state['starred_neighbourhoods'].remove(starred_area)
                     st.rerun()
 

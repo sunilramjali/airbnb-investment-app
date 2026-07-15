@@ -320,7 +320,7 @@ if selected_property_group is not None:
                                         st.caption(f"Investment Score: **{item['investment_score']:,.2f}**")
                 
                                     if st.button(
-                                        "Remove",
+                                        "🗑️",
                                         key=f"remove_starred_listing_{i}_{item['listing_id']}",
                                         use_container_width=True
                                     ):
