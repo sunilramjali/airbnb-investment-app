@@ -86,6 +86,8 @@ STEPS = [
             "GOLD.MART_AREA_SEASONAL",
             "GOLD.MART_AREA_STRATEGY",
             "GOLD.MART_AREA_STRATEGY_BEDROOMS",
+            "GOLD.MART_AREA_AMENITIES",
+            "GOLD.MART_AREA_AMENITY_GAP",
         ],
     },
 ]

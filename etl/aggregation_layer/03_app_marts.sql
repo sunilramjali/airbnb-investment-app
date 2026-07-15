@@ -602,3 +602,288 @@ LEFT JOIN area_cost c
 LEFT JOIN lt_yield y
     ON n.CITY = y.CITY;
 
+-- ============================================================
+-- MART_AREA_AMENITIES — grain: NEIGHBOURHOOD x AMENITY_GROUP.
+-- Area-COMPARISON screen: how well-equipped an area's listings are, by
+-- amenity group. PCT_LISTINGS_WITH_GROUP = share of the area's listings
+-- offering AT LEAST ONE amenity in that group. Long form (one row per
+-- area x group) so the app can facet / grouped-bar the 3 pinned boroughs
+-- across the ~13 curated groups. Filter with WHERE NEIGHBOURHOOD IN (...).
+--
+-- Source: SILVER.LISTING_AMENITIES (exploded listing x amenity, already
+-- classified into AMENITY_GROUP) joined to GOLD.DIM_LISTING for the
+-- listing's NEIGHBOURHOOD / CITY. AREA_LISTINGS is the denominator: the
+-- count of DISTINCT listings in the area that have any amenities at all
+-- (i.e. appear in LISTING_AMENITIES), so PCT is a clean 0..1 share.
+--
+-- This is DELIBERATELY decoupled from the persona investment scores and
+-- AI narratives — it adds amenity insight without invalidating either.
+-- ============================================================
+CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_AMENITIES
+    TARGET_LAG = '1 day'
+    WAREHOUSE  = AIRBNB_APP_WH
+    COMMENT    = 'App-ready amenity-group coverage per neighbourhood x amenity_group: listings offering >=1 amenity in the group, area listing base, and the coverage percentage. Long form for faceted area comparison.'
+AS
+WITH area_base AS (
+    -- Denominator: distinct listings per area that have any amenities.
+    SELECT
+        d.NEIGHBOURHOOD,
+        COUNT(DISTINCT la.LISTING_ID) AS AREA_LISTINGS
+    FROM SILVER.LISTING_AMENITIES la
+    JOIN GOLD.DIM_LISTING d
+        ON la.LISTING_ID = d.LISTING_ID
+    GROUP BY d.NEIGHBOURHOOD
+),
+group_cov AS (
+    -- Numerator: distinct listings per area offering >=1 amenity in each group.
+    SELECT
+        d.NEIGHBOURHOOD,
+        n.CITY,
+        la.AMENITY_GROUP,
+        COUNT(DISTINCT la.LISTING_ID) AS LISTINGS_WITH_GROUP
+    FROM SILVER.LISTING_AMENITIES la
+    JOIN GOLD.DIM_LISTING d
+        ON la.LISTING_ID = d.LISTING_ID
+    LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
+        ON d.NEIGHBOURHOOD = n.NEIGHBOURHOOD
+    GROUP BY d.NEIGHBOURHOOD, n.CITY, la.AMENITY_GROUP
+)
+SELECT
+    g.NEIGHBOURHOOD,
+    g.CITY,
+    g.AMENITY_GROUP,
+    g.LISTINGS_WITH_GROUP,
+    b.AREA_LISTINGS,
+    ROUND(g.LISTINGS_WITH_GROUP / NULLIF(b.AREA_LISTINGS, 0), 4) AS PCT_LISTINGS_WITH_GROUP
+FROM group_cov g
+JOIN area_base b
+    ON g.NEIGHBOURHOOD = b.NEIGHBOURHOOD;
+
+-- ============================================================
+-- MART_AREA_AMENITY_GAP — grain: NEIGHBOURHOOD x AMENITY_GROUP.
+-- Area-COMPARISON / fit-out signal: within an area, how much more likely
+-- are the TOP-earning listings to offer each amenity group than the rest?
+-- GAP = PCT_TOP - PCT_REST. A big positive GAP flags an amenity group that
+-- distinguishes local winners — a candidate "add this to compete here".
+--
+-- Population: ACTIVE listings only (ANNUAL_REVENUE > 0) that also appear in
+-- SILVER.LISTING_AMENITIES, so the coverage % is well-defined and the
+-- dormant-listing tail (revenue 0, few amenities) doesn't distort the split.
+-- Segment: NTILE(4) by ANNUAL_REVENUE DESC within the area -> quartile 1 is
+-- 'top', quartiles 2-4 are 'rest'.
+--
+-- CAVEAT (document in the app): ASSOCIATIONAL, NOT CAUSAL. Top earners tend
+-- to list more amenities partly because they are professionally managed, so
+-- a gap is a strong HINT of what to add, not a guaranteed revenue uplift.
+-- SUFFICIENT_SAMPLE flags areas too small for the quartile split to be
+-- trustworthy (top quartile < 5 or rest < 15 active listings).
+-- ============================================================
+CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_AMENITY_GAP
+    TARGET_LAG = '1 day'
+    WAREHOUSE  = AIRBNB_APP_WH
+    COMMENT    = 'App-ready amenity fit-out signal per neighbourhood x amenity_group: coverage among top-revenue-quartile listings vs the rest, and the gap. Active listings only; associational not causal. SUFFICIENT_SAMPLE guards small areas.'
+AS
+WITH seg AS (
+    -- Active listings with amenities, segmented into top revenue quartile vs rest, per area.
+    SELECT
+        f.LISTING_ID,
+        f.NEIGHBOURHOOD,
+        CASE WHEN NTILE(4) OVER (PARTITION BY f.NEIGHBOURHOOD ORDER BY f.ANNUAL_REVENUE DESC) = 1
+             THEN 'top' ELSE 'rest' END AS segment
+    FROM GOLD.FCT_LISTING_SNAPSHOT f
+    WHERE f.ANNUAL_REVENUE > 0
+      AND EXISTS (SELECT 1 FROM SILVER.LISTING_AMENITIES la WHERE la.LISTING_ID = f.LISTING_ID)
+),
+seg_size AS (
+    SELECT
+        NEIGHBOURHOOD,
+        COUNT(DISTINCT CASE WHEN segment = 'top'  THEN LISTING_ID END) AS TOP_N,
+        COUNT(DISTINCT CASE WHEN segment = 'rest' THEN LISTING_ID END) AS REST_N
+    FROM seg
+    GROUP BY NEIGHBOURHOOD
+),
+listing_group AS (
+    -- One row per (area, segment, listing, group) the listing offers.
+    SELECT DISTINCT s.NEIGHBOURHOOD, s.segment, s.LISTING_ID, la.AMENITY_GROUP
+    FROM seg s
+    JOIN SILVER.LISTING_AMENITIES la
+        ON s.LISTING_ID = la.LISTING_ID
+),
+grp AS (
+    SELECT
+        NEIGHBOURHOOD,
+        AMENITY_GROUP,
+        COUNT(DISTINCT CASE WHEN segment = 'top'  THEN LISTING_ID END) AS TOP_WITH,
+        COUNT(DISTINCT CASE WHEN segment = 'rest' THEN LISTING_ID END) AS REST_WITH
+    FROM listing_group
+    GROUP BY NEIGHBOURHOOD, AMENITY_GROUP
+)
+SELECT
+    g.NEIGHBOURHOOD,
+    n.CITY,
+    g.AMENITY_GROUP,
+    ss.TOP_N,
+    ss.REST_N,
+    ROUND(g.TOP_WITH  / NULLIF(ss.TOP_N, 0),  4)                                      AS PCT_TOP,
+    ROUND(g.REST_WITH / NULLIF(ss.REST_N, 0), 4)                                      AS PCT_REST,
+    ROUND(g.TOP_WITH / NULLIF(ss.TOP_N, 0) - g.REST_WITH / NULLIF(ss.REST_N, 0), 4)   AS GAP,
+    (ss.TOP_N + ss.REST_N)                                                            AS AREA_ACTIVE_LISTINGS,
+    (ss.TOP_N >= 5 AND ss.REST_N >= 15)                                               AS SUFFICIENT_SAMPLE
+FROM grp g
+JOIN seg_size ss
+    ON g.NEIGHBOURHOOD = ss.NEIGHBOURHOOD
+LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
+    ON g.NEIGHBOURHOOD = n.NEIGHBOURHOOD;
+
+-- ============================================================
+-- COLUMN COMMENTS
+-- ------------------------------------------------------------
+-- Per-column documentation for the app marts, kept as COMMENT ON COLUMN
+-- (rather than inline column lists) so they can be maintained without
+-- re-running the mart bodies. Re-applied on every run AFTER the CREATE OR
+-- REPLACE statements above, so they persist across rebuilds. Column names
+-- must match the mart projections above.
+-- ============================================================
+
+-- ---- MART_LISTING_CANDIDATES ----
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.LISTING_ID IS 'Airbnb listing id; row grain (unique per listing).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.HOST_ID IS 'Airbnb host id that owns the listing.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.NAME IS 'Listing title.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.NEIGHBOURHOOD IS 'Area name; the app area grain.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.LATITUDE IS 'Listing latitude (WGS84).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.LONGITUDE IS 'Listing longitude (WGS84).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.GEO_POINT IS 'Geospatial point for map plotting and spatial joins.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ROOM_TYPE IS 'Airbnb room type (Entire home, Private room, etc.).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.PROPERTY_TYPE IS 'Raw Airbnb property type text.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.STRUCTURE_CLASS IS 'Flat or House (NULL for hotel/boat/etc.); used for sale-price yield match.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.PROPERTY_GROUP IS 'Higher-level property grouping for the selection UI.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ACCOMMODATES IS 'Maximum guests the listing sleeps.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BEDROOMS IS 'Number of bedrooms (NULL if unknown).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BEDS IS 'Number of beds.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BATHROOMS IS 'Number of bathrooms (may be fractional).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ADR IS 'Average daily rate = nightly price at scrape time.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.OCCUPANCY_RATE IS 'Estimated occupancy (0..1) = estimated booked nights / 365.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ANNUAL_REVENUE IS 'Estimated trailing-12-month revenue (scraper estimate).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.REVPAR IS 'Revenue per available night = ANNUAL_REVENUE / 365.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.HAS_REVENUE_DATA IS 'TRUE if ANNUAL_REVENUE is populated.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.AREA_MEDIAN_SALE_PRICE IS 'Land Registry median sale price for the area x structure (purchase-cost benchmark).';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.REVIEW_SCORES_RATING IS 'Overall guest review rating.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.NUMBER_OF_REVIEWS IS 'Total review count.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.HOST_IS_SUPERHOST IS 'Whether the host holds Superhost status.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.POI_COUNT_500M IS 'Count of points of interest within 500m.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.TRANSPORT_COUNT_500M IS 'Transport POIs within 500m.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.DINING_COUNT_500M IS 'Dining POIs within 500m.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.INSTANT_BOOKABLE IS 'Whether the listing allows instant booking.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.LISTING_URL IS 'Airbnb listing URL.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.PICTURE_URL IS 'Listing cover photo URL.';
+
+-- ---- MART_AREA_OVERVIEW ----
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.NEIGHBOURHOOD IS 'Area name; row grain.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.CITY IS 'City the neighbourhood belongs to (London / Greater Manchester / Bristol).';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.LISTING_COUNT IS 'Number of listings in the area.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AVG_ADR IS 'Mean nightly rate across the area listings.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.MEDIAN_ADR IS 'Median nightly rate.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AVG_OCCUPANCY_RATE IS 'Mean estimated occupancy (0..1).';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AVG_ANNUAL_REVENUE IS 'Mean estimated annual revenue.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.MEDIAN_ANNUAL_REVENUE IS 'Median estimated annual revenue.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AVG_BEDROOMS IS 'Mean bedrooms per listing.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AVG_RATING IS 'Mean guest review rating.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.MEDIAN_SALE_PRICE IS 'Land Registry median sale price for the area (purchase benchmark).';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.POI_COUNT IS 'POIs inside the neighbourhood boundary.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.TRANSPORT_COUNT IS 'Transport POIs inside the boundary.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.DINING_COUNT IS 'Dining POIs inside the boundary.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.POI_DENSITY_SQKM IS 'POIs per square km.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.AREA_SQKM IS 'Neighbourhood area in square km.';
+COMMENT ON COLUMN GOLD.MART_AREA_OVERVIEW.BOUNDARY IS 'Neighbourhood boundary polygon (GEOGRAPHY) for mapping.';
+
+-- ---- MART_PROPERTY_GROUP ----
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.PROPERTY_GROUP IS 'Property group; grain with neighbourhood and the selection key.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.LISTING_COUNT IS 'Local listings in this area x group (0 if none).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.HAS_LOCAL_DATA IS 'TRUE if the area x group has at least one listing.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.AVG_ADR IS 'Local mean nightly rate for the group.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.MEDIAN_ADR IS 'Local median nightly rate.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.AVG_OCCUPANCY_RATE IS 'Local mean occupancy (0..1).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.AVG_ANNUAL_REVENUE IS 'Local mean annual revenue.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.MEDIAN_ANNUAL_REVENUE IS 'Local median annual revenue.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.AVG_BEDROOMS IS 'Local mean bedrooms.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.AVG_RATING IS 'Local mean rating.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.CITY_LISTING_COUNT IS 'Listings behind the city x group benchmark.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.CITY_AVG_ADR IS 'City x group mean nightly rate (fallback benchmark).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.CITY_AVG_OCCUPANCY_RATE IS 'City x group mean occupancy.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.CITY_AVG_ANNUAL_REVENUE IS 'City x group mean annual revenue.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_LISTING_COUNT IS 'Listings behind the all-areas group benchmark.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_AVG_ADR IS 'All-areas group mean nightly rate.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_AVG_OCCUPANCY_RATE IS 'All-areas group mean occupancy.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_AVG_ANNUAL_REVENUE IS 'All-areas group mean annual revenue.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.MEDIAN_SALE_PRICE IS 'Land Registry median sale price where the group maps to Flat/House (else NULL).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.SALE_TXN_COUNT IS 'Number of sale transactions behind MEDIAN_SALE_PRICE.';
+
+-- ---- MART_AREA_POI ----
+COMMENT ON COLUMN GOLD.MART_AREA_POI.NEIGHBOURHOOD IS 'Area the POI falls within.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.POI_NAME IS 'Point-of-interest name.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.CATEGORY IS 'POI category (raw).';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.AMENITY_GROUP IS 'Curated POI amenity group.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.IS_TRANSPORT IS 'TRUE if the POI is a transport category.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.IS_DINING IS 'TRUE if the POI is a dining amenity.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.LATITUDE IS 'POI latitude for map plotting.';
+COMMENT ON COLUMN GOLD.MART_AREA_POI.LONGITUDE IS 'POI longitude for map plotting.';
+
+-- ---- MART_AREA_SEASONAL ----
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.MONTH IS 'Calendar month 1-12 (year collapsed for seasonality).';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.LISTING_COUNT IS 'Distinct listings contributing in the month.';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.TOTAL_NIGHTS IS 'Listing-nights observed in the month.';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.BOOKED_NIGHTS IS 'Nights not available (proxy for booked).';
+COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.OCCUPANCY_RATE IS 'BOOKED_NIGHTS / TOTAL_NIGHTS (0..1); the seasonal signal.';
+
+-- ---- MART_AREA_STRATEGY ----
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.STRUCTURE_CLASS IS 'Flat / House / Other property-type bucket.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.YIELD_COMPARABLE IS 'TRUE for Flat/House where ST vs LT yields are like-for-like; FALSE for Other.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LISTING_COUNT IS 'Active listings in the area x structure.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.MEDIAN_SALE_PRICE IS 'Land Registry median purchase price for the area x structure.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_ANNUAL_REVENUE IS 'Median short-term (Airbnb) annual revenue.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent = ST revenue / sale price (NULL for Other).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ASSUMED_LT_GROSS_YIELD_PCT IS 'Per-city assumed long-term gross yield percent (documented assumption).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_ANNUAL_RENT IS 'Modelled long-term annual rent = sale price x assumed yield.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent (equals the assumption; NULL for Other).';
+
+-- ---- MART_AREA_STRATEGY_BEDROOMS ----
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.STRUCTURE_CLASS IS 'Flat / House / Other property-type bucket.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.YIELD_COMPARABLE IS 'TRUE for Flat/House where yields are like-for-like; FALSE for Other.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.BEDROOM_BUCKET IS 'Bedroom bucket: Studio / 1 / 2 / 3 / 4 / 5+ / Unknown.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.BEDROOM_SORT IS 'Sort key for BEDROOM_BUCKET (Unknown sorts last).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LISTING_COUNT IS 'Active listings in the area x structure x bedroom bucket.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.MEDIAN_SALE_PRICE IS 'Area x structure median purchase price (shared across bedroom buckets).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ST_ANNUAL_REVENUE IS 'Median short-term annual revenue for the bucket (bedroom-specific).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent (NULL for Other).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ASSUMED_LT_GROSS_YIELD_PCT IS 'Per-city assumed long-term gross yield percent (documented assumption).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_ANNUAL_RENT IS 'Modelled long-term annual rent = sale price x assumed yield.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent (NULL for Other).';
+
+-- ---- MART_AREA_AMENITIES ----
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.AMENITY_GROUP IS 'Curated amenity group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.LISTINGS_WITH_GROUP IS 'Listings offering at least one amenity in the group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.AREA_LISTINGS IS 'Area listings that have any amenities (the denominator).';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.PCT_LISTINGS_WITH_GROUP IS 'Share (0..1) of the area listings offering >=1 amenity in this group.';
+
+-- ---- MART_AREA_AMENITY_GAP ----
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.NEIGHBOURHOOD IS 'Area name.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.CITY IS 'City of the neighbourhood.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.AMENITY_GROUP IS 'Curated amenity group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.TOP_N IS 'Active listings in the top revenue quartile.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.REST_N IS 'Active listings in revenue quartiles 2-4.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.PCT_TOP IS 'Share (0..1) of top-quartile listings offering the group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.PCT_REST IS 'Share (0..1) of the rest offering the group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.GAP IS 'PCT_TOP minus PCT_REST; positive = winners over-index on this group.';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.AREA_ACTIVE_LISTINGS IS 'Total active listings (TOP_N + REST_N).';
+COMMENT ON COLUMN GOLD.MART_AREA_AMENITY_GAP.SUFFICIENT_SAMPLE IS 'TRUE if TOP_N >= 5 AND REST_N >= 15 (quartile split trustworthy).';
