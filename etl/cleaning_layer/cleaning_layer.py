@@ -20,6 +20,8 @@
 #   8) 08_silver_poi.sql                 -> SILVER.POI_CLEANED.
 #   9) 09_silver_code_point.sql          -> SILVER.CODE_POINT_CLEANED.
 #  10) 10_silver_property_group_map.sql  -> SILVER.PROPERTY_GROUP_MAP.
+#  11) 11_silver_amenities.sql           -> SILVER.LISTING_AMENITIES.
+#  12) 12_silver_postcode_neighbourhood_map.sql -> SILVER.POSTCODE_NEIGHBOURHOOD_MAP.
 #
 # Adding another table later = add one (source, target, sql) entry
 # to TRANSFORMS below.
@@ -127,6 +129,28 @@ TRANSFORMS = [
         "target": "SILVER.PROPERTY_GROUP_MAP",
         "sql": SQL_DIR / "10_silver_property_group_map.sql",
         "rows_in_sql": "SELECT COUNT(DISTINCT property_type) FROM SILVER.LISTINGS_CLEANED",
+    },
+    {
+        # Explode the listings amenities JSON array -> one row per (listing, amenity),
+        # classified into a curated AMENITY_GROUP. Reads SILVER.LISTINGS_CLEANED, so it
+        # must run after 02_silver_listings (guaranteed by list order). rows_in override =
+        # total amenity occurrences (the fan-out count) so ROWS_IN matches ROWS_OUT and
+        # ROWS_DROPPED stays a meaningful ~0 (only blank/null amenities dropped).
+        "source": "SILVER.LISTINGS_CLEANED",
+        "target": "SILVER.LISTING_AMENITIES",
+        "sql": SQL_DIR / "11_silver_amenities.sql",
+        "rows_in_sql": "SELECT COUNT(*) FROM SILVER.LISTINGS_CLEANED l, "
+                       "LATERAL FLATTEN(input => TRY_PARSE_JSON(l.AMENITIES)) f",
+    },
+    {
+        # Postcode -> neighbourhood spatial bridge: CODE_POINT postcode centroid
+        # point-in-polygon into NEIGHBOURHOODS_GEO_CLEANED. Reads SILVER.CODE_POINT_CLEANED
+        # (09) and SILVER.NEIGHBOURHOODS_GEO_CLEANED (06), both earlier in this list.
+        # source is labelled CODE_POINT_CLEANED (the postcode-grain input); ROWS_DROPPED
+        # then = postcodes that fell outside every neighbourhood polygon (meaningful).
+        "source": "SILVER.CODE_POINT_CLEANED",
+        "target": "SILVER.POSTCODE_NEIGHBOURHOOD_MAP",
+        "sql": SQL_DIR / "12_silver_postcode_neighbourhood_map.sql",
     },
 ]
 
