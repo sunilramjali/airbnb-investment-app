@@ -124,4 +124,34 @@ The silver layer can be used for analysis, modelling, and enrichment.
 data/gold/
 ```
 
-The gold layer stores the final
+The gold layer stores the final, app-ready datasets — the outputs the dashboard actually
+reads. This is where the star schema (dimensions + facts) and the denormalised marts live.
+
+Gold data answers:
+
+> What does the app show?
+
+Example files:
+
+```text
+data/gold/mart_listing.csv
+data/gold/mart_area.csv
+data/gold/mart_area_structure.csv
+```
+
+> **Implemented:** in this project the gold layer is built in `etl/aggregation_layer/`
+> (driven by `aggregation_layer.py`) and lands in the Snowflake `GOLD` schema — not a local
+> `data/gold/` folder. The `data/gold/` paths above describe the medallion *concept*. See the
+> README "Silver → Gold (Aggregation) — User Guide" for how to run it and what it produces.
+>
+> The real GOLD objects are a Kimball **star** — `DIM_LISTING`, `DIM_HOST`,
+> `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`,
+> `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI` — plus the **app-facing marts** the Streamlit app
+> reads directly: `MART_LISTING_CANDIDATES` (per-listing), `MART_AREA_OVERVIEW`
+> (per-neighbourhood + map boundary), `MART_PROPERTY_GROUP` (neighbourhood × property group +
+> median sale-price cost), and `MART_AREA_POI` (per-POI map markers). They are
+> **dynamic tables**, refreshed incrementally (marts anchor `TARGET_LAG='1 day'`; dims/facts
+> use `DOWNSTREAM`).
+
+The app reads the **GOLD schema only** — never Bronze or Silver.
+

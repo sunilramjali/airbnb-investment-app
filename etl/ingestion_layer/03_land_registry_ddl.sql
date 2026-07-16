@@ -42,7 +42,7 @@ CREATE FILE FORMAT IF NOT EXISTS BRONZE.CSV_NOHDR_FF
 ---------------------------------------------
 CREATE OR ALTER STAGE BRONZE.LAND_REGISTRY_STAGE
     STORAGE_INTEGRATION = AIRBNB_S3_INT
-    URL = 's3://airbnb-investment-app-988261629236-eu-west-2-an/raw/land_registry/price_paid/'
+    URL = 's3://airbnb-investment-app-988261629236-eu-west-2-an/raw/hm_land_registry/price_paid/'
     COMMENT = 'External S3 landing zone for Land Registry Price Paid yearly CSVs';
 
 -- Verify Snowflake can see the files (uncomment to run interactively):
