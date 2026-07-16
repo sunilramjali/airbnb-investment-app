@@ -60,3 +60,8 @@ FROM (
     FROM SILVER.LISTINGS_CLEANED
     WHERE property_type IS NOT NULL
 );
+
+-- Re-enable change tracking: CREATE OR REPLACE TABLE above drops it, and the
+-- incremental dynamic table GOLD.DIM_LISTING reads this table -> its refresh
+-- fails without change tracking. Re-assert it on every rebuild.
+ALTER TABLE SILVER.PROPERTY_GROUP_MAP SET CHANGE_TRACKING = TRUE;
