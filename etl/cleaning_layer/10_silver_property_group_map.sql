@@ -1,10 +1,19 @@
 -- Builds SILVER.PROPERTY_GROUP_MAP: lookup mapping each cleaned property_type to a
--- higher-level property_group category.
+-- higher-level property_group category, plus a coarser property_class.
 --
 -- Grain : one row per distinct cleaned property_type (from SILVER.LISTINGS_CLEANED).
 -- Source: SILVER.LISTINGS_CLEANED.property_type (already lowercased & prefix-stripped
 --         by 02_silver_listings.sql).
 -- Usage : LEFT JOIN on property_type, wrapped in COALESCE(..., 'Other / Unknown').
+--
+-- property_class : the residential-sale bridge to HM Land Registry Price Paid, which
+--         only distinguishes Flat vs House. Values:
+--           'Flat'  -> maps to Price Paid Flat/Maisonette
+--           'House' -> maps to Price Paid Terraced / Semi-Detached / Detached
+--           NULL    -> NO residential sale comparator (hotels, unique stays, outdoor,
+--                      ambiguous/unknown). These listings are KEPT in the data but
+--                      excluded from the long-term (buy) vs short-term (Airbnb)
+--                      comparison via `WHERE property_class IS NOT NULL`.
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
 USE SCHEMA SILVER;
@@ -34,7 +43,18 @@ SELECT
             'campsite', 'tent'
         ) THEN 'Outdoor / Land'
         ELSE 'Other / Unknown'
-    END AS property_group
+    END AS property_group,
+    CASE
+        WHEN property_type IN (
+            'rental unit', 'condo', 'serviced apartment', 'aparthotel',
+            'loft', 'guest suite', 'floor', 'home/apt'
+        ) THEN 'Flat'
+        WHEN property_type IN (
+            'home', 'townhouse', 'bungalow', 'villa', 'cottage', 'cabin', 'chalet',
+            'vacation home', 'guesthouse', 'bed and breakfast'
+        ) THEN 'House'
+        ELSE NULL   -- no residential sale comparator (hotels, unique stays, outdoor, ambiguous)
+    END AS property_class
 FROM (
     SELECT DISTINCT property_type
     FROM SILVER.LISTINGS_CLEANED
