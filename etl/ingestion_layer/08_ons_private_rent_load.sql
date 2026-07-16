@@ -1,76 +1,56 @@
--- ONS Price Index of Private Rents (PIPR) — Bronze load (table rebuild + COPY + audit).
+-- ONS Price Index of Private Rents (PIPR) — Bronze load (table rebuild + parse proc + audit).
 -- Co-authored with CoCo
 -- ============================================================
 -- ONS PRIVATE RENT (PIPR)  —  LOAD (run EVERY load).
 -- ------------------------------------------------------------
--- Depends on 07_ons_private_rent_ddl.sql (CSV_HDR_SKIP1_FF + ONS_PRIVATE_RENT_STAGE).
--- Rebuilds RAW_ONS_PRIVATE_RENT and COPYs the single cumulative file, so
--- re-running (e.g. after the monthly Lambda refresh) is idempotent — no
--- duplicate rows. Bronze stays faithful (all columns TEXT); typing happens
--- in SILVER (08_silver_ons_private_rent.sql).
+-- Depends on 07_ons_private_rent_ddl.sql (ONS_PRIVATE_RENT_STAGE + the
+-- BRONZE.LOAD_ONS_PRIVATE_RENT parse proc).
 --
--- Run steps 2 + 3 together: the audit INSERT reads COPY_HISTORY for this table.
+-- Rebuilds RAW_ONS_PRIVATE_RENT, then CALLs the proc, which parses the NEWEST
+-- .xlsx on the stage with openpyxl and appends one faithful row per spreadsheet
+-- row (all cells as an ARRAY of TEXT). Rebuild + single-file parse keeps the
+-- load idempotent — re-running after the monthly Lambda refresh yields no
+-- duplicates. Bronze stays faithful (untyped); typing happens in SILVER.
+--
+-- The proc also writes the BRONZE.LOAD_AUDIT row itself: a Python load produces
+-- no COPY_HISTORY, so the COPY_HISTORY-based audit used by the CSV loaders
+-- (03/04, 07-old) does not apply here.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
 USE SCHEMA BRONZE;
 
 ---------------------------------------------
--- 1. Bronze table: the 5 tidy columns as TEXT + lineage columns.
---    Column order matches the Lambda's CSV header exactly (positional COPY):
---      period, geography_code, geography_name, bedroom_category, average_rent
+-- 1. Bronze table: faithful, untyped landing of the ONS workbook.
+--    Each spreadsheet row -> one table row: the cells as an ARRAY of TEXT
+--    (survives ONS's multi-row titles / merged headers) + lineage columns.
 --    Rebuilt each run (OR REPLACE) to keep the load idempotent.
+--    SILVER will locate the header row and reshape CELLS into typed columns.
 ---------------------------------------------
 CREATE OR REPLACE TABLE BRONZE.RAW_ONS_PRIVATE_RENT (
-    PERIOD            STRING,   -- $1  reporting month (ONS date, e.g. 'YYYY-MM' or 'Mon-YY')
-    GEOGRAPHY_CODE    STRING,   -- $2  ONS geography code (e.g. E12000007, E11000001, E06000023)
-    GEOGRAPHY_NAME    STRING,   -- $3  human-readable area name
-    BEDROOM_CATEGORY  STRING,   -- $4  bedroom / property-type breakdown label
-    AVERAGE_RENT      STRING,   -- $5  average monthly rent (GBP)
-    _FILENAME         STRING,           -- lineage: source file
-    _FILE_ROW_NUMBER  NUMBER,           -- lineage: row position within file
-    _LOAD_TS          TIMESTAMP_NTZ     -- lineage: load timestamp
+    SHEET             STRING,               -- workbook tab the row came from
+    CELLS             ARRAY,                -- ordered cell values as TEXT (NULLs preserved)
+    _FILENAME         STRING,               -- lineage: source file (relative path on stage)
+    _FILE_ROW_NUMBER  NUMBER,               -- lineage: 1-based row position within the sheet
+    _LOAD_TS          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()  -- lineage: load time
 )
-COMMENT = 'Bronze ONS PIPR average private rents — cumulative, all-TEXT, rebuilt each run.';
+COMMENT = 'Bronze ONS PIPR workbook — faithful, one ARRAY row per sheet row, rebuilt each run.';
 
 ---------------------------------------------
--- 2. Load the cumulative file in one COPY (positional mapping + lineage metadata).
---    PATTERN restricts to the tidy CSV so stray/marker objects are ignored.
---    ON_ERROR = CONTINUE mirrors the other Bronze loaders; skipped rows are
---    recorded in LOAD_AUDIT below.
+-- 2. Parse + load the newest .xlsx (proc refreshes the stage directory itself).
+--    Reads the 'Table 1' tab and skips the 2 ONS title rows above the header,
+--    so the header (original row 3) is the first landed row and data follows.
+--    Returns a summary string and writes a BRONZE.LOAD_AUDIT row.
 ---------------------------------------------
-COPY INTO BRONZE.RAW_ONS_PRIVATE_RENT
-FROM (
-    SELECT $1, $2, $3, $4, $5,
-           METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, METADATA$START_SCAN_TIME
-    FROM @BRONZE.ONS_PRIVATE_RENT_STAGE
-)
-PATTERN = '.*pipr_average_rents\.csv'
-FILE_FORMAT = (FORMAT_NAME = 'BRONZE.CSV_HDR_SKIP1_FF')
-ON_ERROR = CONTINUE;
+CALL BRONZE.LOAD_ONS_PRIVATE_RENT('Table 1', 2);
 
 ---------------------------------------------
--- 3. Audit the load into the shared BRONZE.LOAD_AUDIT (created by 01_bronze_ddl.sql)
---    so ONS loads appear in the same audit queries as the other sources.
---    Sourced from INFORMATION_SCHEMA.COPY_HISTORY (stable schema, order-independent,
---    robust to 0-file re-runs) rather than RESULT_SCAN of the COPY.
----------------------------------------------
-INSERT INTO BRONZE.LOAD_AUDIT
-    (TABLE_NAME, FILE_NAME, STATUS, ROWS_PARSED, ROWS_LOADED,
-     ERRORS_SEEN, FIRST_ERROR, FIRST_ERROR_LINE)
-SELECT 'RAW_ONS_PRIVATE_RENT', FILE_NAME, STATUS, ROW_PARSED, ROW_COUNT,
-       ERROR_COUNT, FIRST_ERROR_MESSAGE, FIRST_ERROR_LINE_NUMBER
-FROM TABLE(INFORMATION_SCHEMA.COPY_HISTORY(
-    TABLE_NAME => 'AIRBNB_INVESTMENT_DB.BRONZE.RAW_ONS_PRIVATE_RENT',
-    START_TIME => DATEADD('hour', -1, CURRENT_TIMESTAMP())
-));
-
----------------------------------------------
--- 4. Verify (uncomment to run interactively):
---   -- distinct geographies present (should include our 3 target codes)
---   SELECT DISTINCT GEOGRAPHY_CODE, GEOGRAPHY_NAME
---   FROM BRONZE.RAW_ONS_PRIVATE_RENT ORDER BY 1;
---
+-- 3. Verify (uncomment to run interactively):
 --   -- most recent ONS load outcome
 --   SELECT * FROM BRONZE.LOAD_AUDIT
 --   WHERE TABLE_NAME = 'RAW_ONS_PRIVATE_RENT' ORDER BY LOAD_TS DESC;
+--
+--   -- row count + first rows: row 3 is the header, data is _FILE_ROW_NUMBER >= 4
+--   SELECT COUNT(*) AS rows, MAX(_LOAD_TS) AS last_load FROM BRONZE.RAW_ONS_PRIVATE_RENT;
+--   SELECT _FILE_ROW_NUMBER, CELLS
+--   FROM BRONZE.RAW_ONS_PRIVATE_RENT ORDER BY _FILE_ROW_NUMBER LIMIT 30;
