@@ -24,15 +24,13 @@
 -- map to a neighbourhood; 108/108 neighbourhood names match Airbnb exactly.
 --
 -- Consumer: GOLD.FCT_AREA_SALE_PRICE (joins Price Paid -> postcode_key -> here).
--- Refresh : DYNAMIC TABLE, TARGET_LAG = DOWNSTREAM (refreshes only to satisfy
---           the sale-price fact). FULL refresh (spatial join is a complex query).
+-- Build   : static CREATE OR REPLACE TABLE, run by cleaning_layer.py (like every
+--           other SILVER table). Not a dynamic table: its inputs are static
+--           SILVER tables rebuilt by the same driver, and the downstream fact is
+--           FULL-refresh, so there is nothing to auto-refresh against.
 -- ============================================================
 
-CREATE OR REPLACE DYNAMIC TABLE AIRBNB_INVESTMENT_DB.SILVER.POSTCODE_NEIGHBOURHOOD_MAP
-    TARGET_LAG = 'DOWNSTREAM'
-    REFRESH_MODE = AUTO
-    INITIALIZE = ON_CREATE
-    WAREHOUSE = COMPUTE_WH
+CREATE OR REPLACE TABLE AIRBNB_INVESTMENT_DB.SILVER.POSTCODE_NEIGHBOURHOOD_MAP
     COMMENT = 'Postcode->neighbourhood spatial bridge: CODE_POINT geography point-in-polygon into NEIGHBOURHOODS_GEO_CLEANED. One row per postcode_key (dedup defensive; 0 polygon overlaps observed). Feeds GOLD.FCT_AREA_SALE_PRICE to give postcode-based Price Paid sales a neighbourhood + city.'
 AS
 SELECT
