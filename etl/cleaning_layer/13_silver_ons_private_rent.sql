@@ -105,3 +105,8 @@ QUALIFY ROW_NUMBER() OVER (
             PARTITION BY period, area_code, category
             ORDER BY _LOAD_TS DESC
         ) = 1;                        -- one row per (month, area, category), latest load wins
+
+-- Re-enable change tracking: CREATE OR REPLACE TABLE above drops it, and the
+-- downstream dynamic table GOLD.FCT_AREA_RENT reads this table -> its refresh
+-- can fail without change tracking. Re-assert it on every rebuild.
+ALTER TABLE SILVER.ONS_PRIVATE_RENT_CLEANED SET CHANGE_TRACKING = TRUE;

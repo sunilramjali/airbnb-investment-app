@@ -90,6 +90,11 @@ FROM mapped m
 LEFT JOIN ons_areas a
     ON LOWER(TRIM(a.area_name)) = LOWER(TRIM(m.ons_area_name));
 
+-- Re-enable change tracking: CREATE OR REPLACE TABLE above drops it, and the
+-- downstream dynamic table GOLD.FCT_AREA_RENT reads this table -> its refresh
+-- can fail without change tracking. Re-assert it on every rebuild.
+ALTER TABLE SILVER.NEIGHBOURHOOD_ONS_AREA_MAP SET CHANGE_TRACKING = TRUE;
+
 -- Verify (uncomment to run interactively):
 --   -- any neighbourhood that failed to resolve to an ONS area code?
 --   SELECT * FROM SILVER.NEIGHBOURHOOD_ONS_AREA_MAP WHERE ons_area_code IS NULL;
