@@ -74,6 +74,7 @@ STEPS = [
             "GOLD.FCT_CALENDAR_DAILY",
             "GOLD.FCT_LISTING_SNAPSHOT",
             "GOLD.FCT_LISTING_POI",
+            "GOLD.FCT_AREA_SALE_PRICE",
         ],
     },
     {
@@ -83,6 +84,11 @@ STEPS = [
             "GOLD.MART_AREA_OVERVIEW",
             "GOLD.MART_PROPERTY_GROUP",
             "GOLD.MART_AREA_POI",
+            "GOLD.MART_AREA_SEASONAL",
+            "GOLD.MART_AREA_STRATEGY",
+            "GOLD.MART_AREA_STRATEGY_BEDROOMS",
+            "GOLD.MART_AREA_AMENITIES",
+            "GOLD.MART_AREA_AMENITY_GAP",
         ],
     },
 ]
