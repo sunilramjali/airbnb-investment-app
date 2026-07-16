@@ -9,7 +9,8 @@
 -- SILVER.ONS_PRIVATE_RENT_CLEANED can join to the neighbourhood-grain facts
 -- (FCT_AREA_SALE_PRICE / MART_AREA_STRATEGY) on the SAME area key.
 --
--- Grain : one row per (neighbourhood, city) in GOLD.DIM_NEIGHBOURHOOD.
+-- Grain : one row per (neighbourhood, city), from SILVER.NEIGHBOURHOODS_GEO_CLEANED
+--         (city derived from the source filename — same rule as DIM_NEIGHBOURHOOD).
 --
 -- Mapping rules (verified against the data):
 --   * London  : Inside Airbnb neighbourhoods ARE the boroughs, and match ONS
@@ -44,6 +45,20 @@ WITH ons_areas AS (
     FROM SILVER.ONS_PRIVATE_RENT_CLEANED
     WHERE geo_level = 'district'
 ),
+neighbourhoods AS (
+    -- neighbourhood + city from the silver polygon source (city from the
+    -- source filename, same rule as GOLD.DIM_NEIGHBOURHOOD / POSTCODE_NEIGHBOURHOOD_MAP).
+    -- Sourced from SILVER (not GOLD.DIM_NEIGHBOURHOOD) so this stays within the
+    -- silver layer and runs before the aggregation layer is built.
+    SELECT DISTINCT
+        NEIGHBOURHOOD AS neighbourhood,
+        CASE SPLIT_PART(_FILENAME, '/', 3)
+            WHEN 'greater_manchester' THEN 'Greater Manchester'
+            WHEN 'bristol'            THEN 'Bristol'
+            WHEN 'london'             THEN 'London'
+        END AS city
+    FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED
+),
 mapped AS (
     SELECT
         n.neighbourhood,
@@ -63,7 +78,7 @@ mapped AS (
             WHEN n.city = 'Greater Manchester' AND n.neighbourhood ILIKE '% District' THEN 'exact'
             ELSE 'broadcast'                                                    -- Manchester wards, Bristol wards
         END AS rent_grain
-    FROM GOLD.DIM_NEIGHBOURHOOD n
+    FROM neighbourhoods n
 )
 SELECT
     m.neighbourhood,
