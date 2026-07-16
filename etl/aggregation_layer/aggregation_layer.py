@@ -74,6 +74,7 @@ STEPS = [
             "GOLD.FCT_CALENDAR_DAILY",
             "GOLD.FCT_LISTING_SNAPSHOT",
             "GOLD.FCT_LISTING_POI",
+            "GOLD.FCT_AREA_SALE_PRICE",
         ],
     },
     {

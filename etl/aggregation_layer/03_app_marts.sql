@@ -20,12 +20,13 @@
 -- DIM_NEIGHBOURHOOD from the source file path, is carried into MART_AREA_OVERVIEW
 -- for area-level grouping/filtering.
 --
--- COST BENCHMARK: Land Registry median sale PRICE
--- (SILVER.PRICE_PAID_CLEANED) at area x structure grain. A listing's
--- NEIGHBOURHOOD is matched against Land Registry DISTRICT *or*
--- TOWN_CITY (unified name lookup) — ~80% of listings match. LR
--- PROPERTY_TYPE_CODE maps to STRUCTURE_CLASS: F -> Flat; D/S/T ->
--- House; O -> excluded.
+-- COST BENCHMARK: Land Registry median sale PRICE now comes from the
+-- shared GOLD.FCT_AREA_SALE_PRICE fact (grain NEIGHBOURHOOD x
+-- STRUCTURE_CLASS: Flat/House/Other/All). That fact places postcode-based
+-- Price Paid sales into neighbourhoods via the SILVER.POSTCODE_NEIGHBOURHOOD_MAP
+-- spatial bridge (99.95% coverage, quality_flag='ok'). Marts join it directly
+-- on NEIGHBOURHOOD (+ STRUCTURE_CLASS), replacing the old fragile
+-- DISTRICT/TOWN_CITY name-match + inline per-mart aggregation.
 --
 -- REFRESH DESIGN: the marts are the leaf consumers and carry an
 -- explicit TARGET_LAG = '1 day' — they define the freshness SLA that
@@ -46,27 +47,6 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_LISTING_CANDIDATES
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready per-listing dataset: area (NEIGHBOURHOOD), mapping geo, property attributes, revenue metrics, and area x structure median sale-price cost benchmark.'
 AS
-WITH area_cost AS (
-    -- Median LR sale price per area-name x structure. Area name is
-    -- taken from BOTH district and town_city so listing NEIGHBOURHOOD
-    -- can match either granularity.
-    SELECT area_name, structure_class, MEDIAN(price) AS median_sale_price
-    FROM (
-        SELECT UPPER(TRIM(DISTRICT))  AS area_name, PROPERTY_TYPE_CODE, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE DISTRICT IS NOT NULL
-        UNION ALL
-        SELECT UPPER(TRIM(TOWN_CITY)) AS area_name, PROPERTY_TYPE_CODE, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE TOWN_CITY IS NOT NULL
-    ) src
-    CROSS JOIN LATERAL (
-        SELECT CASE
-                   WHEN src.PROPERTY_TYPE_CODE = 'F'            THEN 'Flat'
-                   WHEN src.PROPERTY_TYPE_CODE IN ('D','S','T') THEN 'House'
-               END AS structure_class
-    ) m
-    WHERE src.PROPERTY_TYPE_CODE IN ('F','D','S','T')
-    GROUP BY area_name, structure_class
-)
 SELECT
     s.LISTING_ID,
     s.HOST_ID,
@@ -88,7 +68,7 @@ SELECT
     s.ANNUAL_REVENUE,
     s.REVPAR,
     (s.ANNUAL_REVENUE IS NOT NULL) AS HAS_REVENUE_DATA,
-    c.median_sale_price AS AREA_MEDIAN_SALE_PRICE,
+    c.MEDIAN_SALE_PRICE AS AREA_MEDIAN_SALE_PRICE,
     s.REVIEW_SCORES_RATING,
     s.NUMBER_OF_REVIEWS,
     h.HOST_IS_SUPERHOST,
@@ -105,9 +85,9 @@ LEFT JOIN GOLD.DIM_HOST h
     ON s.HOST_ID = h.HOST_ID
 LEFT JOIN GOLD.FCT_LISTING_POI p
     ON s.LISTING_ID = p.LISTING_ID
-LEFT JOIN area_cost c
-    ON UPPER(TRIM(d.NEIGHBOURHOOD)) = c.area_name
-   AND d.STRUCTURE_CLASS           = c.structure_class;
+LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
+    ON c.NEIGHBOURHOOD   = d.NEIGHBOURHOOD
+   AND c.STRUCTURE_CLASS = d.STRUCTURE_CLASS;
 
 -- ============================================================
 -- MART_AREA_OVERVIEW — grain: one row per NEIGHBOURHOOD.
@@ -118,18 +98,7 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_OVERVIEW
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready per-neighbourhood summary: CITY, listing counts, revenue/occupancy aggregates, median sale price, in-area POI counts, and boundary GEOGRAPHY for mapping.'
 AS
-WITH area_cost AS (
-    SELECT area_name, MEDIAN(price) AS median_sale_price
-    FROM (
-        SELECT UPPER(TRIM(DISTRICT))  AS area_name, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE DISTRICT IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T')
-        UNION ALL
-        SELECT UPPER(TRIM(TOWN_CITY)) AS area_name, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE TOWN_CITY IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T')
-    ) src
-    GROUP BY area_name
-),
-listing_agg AS (
+WITH listing_agg AS (
     SELECT
         NEIGHBOURHOOD,
         COUNT(*)                       AS LISTING_COUNT,
@@ -167,7 +136,7 @@ SELECT
     la.MEDIAN_ANNUAL_REVENUE,
     la.AVG_BEDROOMS,
     la.AVG_RATING,
-    c.median_sale_price AS MEDIAN_SALE_PRICE,
+    c.MEDIAN_SALE_PRICE AS MEDIAN_SALE_PRICE,
     COALESCE(ap.POI_COUNT, 0)       AS POI_COUNT,
     COALESCE(ap.TRANSPORT_COUNT, 0) AS TRANSPORT_COUNT,
     COALESCE(ap.DINING_COUNT, 0)    AS DINING_COUNT,
@@ -177,8 +146,9 @@ SELECT
 FROM listing_agg la
 LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
     ON la.NEIGHBOURHOOD = n.NEIGHBOURHOOD
-LEFT JOIN area_cost c
-    ON UPPER(TRIM(la.NEIGHBOURHOOD)) = c.area_name
+LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
+    ON c.NEIGHBOURHOOD   = la.NEIGHBOURHOOD
+   AND c.STRUCTURE_CLASS = 'All'
 LEFT JOIN area_poi ap
     ON la.NEIGHBOURHOOD = ap.NEIGHBOURHOOD;
 
@@ -210,24 +180,7 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_PROPERTY_GROUP
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready neighbourhood x property group summary: all 7 groups per neighbourhood with true local averages + count, city and all-areas benchmark averages, HAS_LOCAL_DATA flag, and Land Registry median sale price where the group maps to Flat/House.'
 AS
-WITH area_cost AS (
-    SELECT area_name, structure_class, MEDIAN(price) AS median_sale_price, COUNT(*) AS sale_count
-    FROM (
-        SELECT UPPER(TRIM(DISTRICT))  AS area_name, PROPERTY_TYPE_CODE, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE DISTRICT IS NOT NULL
-        UNION ALL
-        SELECT UPPER(TRIM(TOWN_CITY)) AS area_name, PROPERTY_TYPE_CODE, PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE TOWN_CITY IS NOT NULL
-    ) src
-    CROSS JOIN LATERAL (
-        SELECT CASE
-                   WHEN src.PROPERTY_TYPE_CODE = 'F'            THEN 'Flat'
-                   WHEN src.PROPERTY_TYPE_CODE IN ('D','S','T') THEN 'House'
-               END AS structure_class
-    ) m
-    WHERE src.PROPERTY_TYPE_CODE IN ('F','D','S','T')
-    GROUP BY area_name, structure_class
-),
+WITH
 -- All neighbourhood x group combinations (108 x 7). CITY carried through
 -- for the city-level benchmark join and app filtering.
 scaffold AS (
@@ -304,8 +257,8 @@ SELECT
     aa.ALL_AVG_OCCUPANCY_RATE,
     aa.ALL_AVG_ANNUAL_REVENUE,
     -- Cost benchmark (Flat/House only)
-    c.median_sale_price             AS MEDIAN_SALE_PRICE,
-    c.sale_count                    AS SALE_TXN_COUNT
+    c.MEDIAN_SALE_PRICE             AS MEDIAN_SALE_PRICE,
+    c.SALE_TXN_COUNT                    AS SALE_TXN_COUNT
 FROM scaffold s
 LEFT JOIN local_agg la
     ON s.NEIGHBOURHOOD = la.NEIGHBOURHOOD
@@ -315,12 +268,12 @@ LEFT JOIN city_agg ca
    AND s.PROPERTY_GROUP = ca.PROPERTY_GROUP
 LEFT JOIN all_agg aa
     ON s.PROPERTY_GROUP = aa.PROPERTY_GROUP
-LEFT JOIN area_cost c
-    ON UPPER(TRIM(s.NEIGHBOURHOOD)) = c.area_name
-   AND CASE
+LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
+    ON c.NEIGHBOURHOOD = s.NEIGHBOURHOOD
+   AND c.STRUCTURE_CLASS = CASE
            WHEN s.PROPERTY_GROUP = 'Apartment / Flat' THEN 'Flat'
            WHEN s.PROPERTY_GROUP = 'House'            THEN 'House'
-       END = c.structure_class;
+       END;
 
 -- ============================================================
 -- MART_AREA_POI — grain: one row per POI inside a neighbourhood.
@@ -438,24 +391,7 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_STRATEGY
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready ST (Airbnb) vs LT (let) yield comparison per neighbourhood x structure_class (Flat/House/Other). Purchase price normalised per area x structure; yields only for Flat/House (YIELD_COMPARABLE), Other is price context only. All figures gross.'
 AS
-WITH area_cost AS (
-    -- Median LR sale price per area x structure_class, matched on district
-    -- OR town/city so NEIGHBOURHOOD can hit either. F->Flat, D/S/T->House,
-    -- O->Other. Same normalisation basis as the other consumer marts.
-    SELECT area_name, structure_class, MEDIAN(price) AS median_sale_price
-    FROM (
-        SELECT UPPER(TRIM(DISTRICT))  AS area_name,
-               CASE PROPERTY_TYPE_CODE WHEN 'F' THEN 'Flat' WHEN 'O' THEN 'Other' ELSE 'House' END AS structure_class,
-               PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE DISTRICT IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T','O')
-        UNION ALL
-        SELECT UPPER(TRIM(TOWN_CITY)) AS area_name,
-               CASE PROPERTY_TYPE_CODE WHEN 'F' THEN 'Flat' WHEN 'O' THEN 'Other' ELSE 'House' END AS structure_class,
-               PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE TOWN_CITY IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T','O')
-    ) src
-    GROUP BY area_name, structure_class
-),
+WITH
 -- Short-term (Airbnb) income per area x structure_class, from the fact.
 area_rev AS (
     SELECT
@@ -481,22 +417,22 @@ SELECT
     ar.STRUCTURE_CLASS,
     (ar.STRUCTURE_CLASS IN ('Flat', 'House'))                                    AS YIELD_COMPARABLE,
     ar.LISTING_COUNT,
-    c.median_sale_price                                                          AS MEDIAN_SALE_PRICE,
+    c.MEDIAN_SALE_PRICE                                                          AS MEDIAN_SALE_PRICE,
     -- ---- Short-term (Airbnb) ----
     ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE, 2)                                        AS ST_ANNUAL_REVENUE,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.median_sale_price, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
+         THEN ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
     -- ---- Long-term (modelled; NULL for non-comparable 'Other') ----
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS ASSUMED_LT_GROSS_YIELD_PCT,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(c.median_sale_price * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
+         THEN ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS LT_GROSS_YIELD_PCT
 FROM area_rev ar
 LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
     ON ar.NEIGHBOURHOOD = n.NEIGHBOURHOOD
-LEFT JOIN area_cost c
-    ON UPPER(TRIM(ar.NEIGHBOURHOOD)) = c.area_name
-   AND ar.STRUCTURE_CLASS = c.structure_class
+LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
+    ON c.NEIGHBOURHOOD   = ar.NEIGHBOURHOOD
+   AND c.STRUCTURE_CLASS = ar.STRUCTURE_CLASS
 LEFT JOIN lt_yield y
     ON n.CITY = y.CITY;
 
@@ -528,23 +464,7 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_STRATEGY_BEDROOMS
     WAREHOUSE  = AIRBNB_APP_WH
     COMMENT    = 'App-ready ST-vs-LT yield comparison per neighbourhood x structure_class x bedroom bucket. ST annual revenue is bedroom-specific; purchase price is per area x structure (shared across bedroom buckets); yields only for Flat/House. All figures gross.'
 AS
-WITH area_cost AS (
-    -- Median LR sale price per area x structure_class. F->Flat, D/S/T->House,
-    -- O->Other. Matched on district OR town/city.
-    SELECT area_name, structure_class, MEDIAN(price) AS median_sale_price
-    FROM (
-        SELECT UPPER(TRIM(DISTRICT))  AS area_name,
-               CASE PROPERTY_TYPE_CODE WHEN 'F' THEN 'Flat' WHEN 'O' THEN 'Other' ELSE 'House' END AS structure_class,
-               PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE DISTRICT IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T','O')
-        UNION ALL
-        SELECT UPPER(TRIM(TOWN_CITY)) AS area_name,
-               CASE PROPERTY_TYPE_CODE WHEN 'F' THEN 'Flat' WHEN 'O' THEN 'Other' ELSE 'House' END AS structure_class,
-               PRICE
-        FROM SILVER.PRICE_PAID_CLEANED WHERE TOWN_CITY IS NOT NULL AND PROPERTY_TYPE_CODE IN ('F','D','S','T','O')
-    ) src
-    GROUP BY area_name, structure_class
-),
+WITH
 -- Short-term (Airbnb) income per area x structure_class x bedroom bucket.
 seg_rev AS (
     SELECT
@@ -583,22 +503,22 @@ SELECT
     sr.BEDROOM_BUCKET,
     sr.BEDROOM_SORT,
     sr.LISTING_COUNT,
-    c.median_sale_price                                                          AS MEDIAN_SALE_PRICE,
+    c.MEDIAN_SALE_PRICE                                                          AS MEDIAN_SALE_PRICE,
     -- ---- Short-term (Airbnb), bedroom-specific ----
     ROUND(sr.MEDIAN_ST_ANNUAL_REVENUE, 2)                                        AS ST_ANNUAL_REVENUE,
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(sr.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.median_sale_price, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
+         THEN ROUND(sr.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
     -- ---- Long-term (area x structure assumption; NULL for 'Other') ----
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS ASSUMED_LT_GROSS_YIELD_PCT,
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(c.median_sale_price * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
+         THEN ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS LT_GROSS_YIELD_PCT
 FROM seg_rev sr
 LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
     ON sr.NEIGHBOURHOOD = n.NEIGHBOURHOOD
-LEFT JOIN area_cost c
-    ON UPPER(TRIM(sr.NEIGHBOURHOOD)) = c.area_name
-   AND sr.STRUCTURE_CLASS = c.structure_class
+LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
+    ON c.NEIGHBOURHOOD   = sr.NEIGHBOURHOOD
+   AND c.STRUCTURE_CLASS = sr.STRUCTURE_CLASS
 LEFT JOIN lt_yield y
     ON n.CITY = y.CITY;
 
