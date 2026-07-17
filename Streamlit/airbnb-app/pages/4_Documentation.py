@@ -1,13 +1,11 @@
 
 import streamlit as st
-import os
 from snowflake.snowpark.functions import st_x, st_y
-
-
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+from db import get_session
 
 st.set_page_config(layout='wide')
+
+session = get_session()
 
 # TITLE ---
 

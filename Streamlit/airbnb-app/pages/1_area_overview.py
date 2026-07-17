@@ -1,8 +1,10 @@
 import streamlit as st
-import os
 import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
+from db import get_session
+
+st.set_page_config(layout='wide')
 #st.write("Checking 1 2 3")
 
 #CUSTOM CSS FOR PAGE DESIGN GOES HERE
@@ -109,8 +111,6 @@ st.markdown(
 
 if st.button('Landing'):
     st.switch_page('landing.py')
-    
-st.set_page_config(layout = 'wide')
 
 if 'starred_neighbourhoods' not in st.session_state:
     st.session_state['starred_neighbourhoods'] = []
