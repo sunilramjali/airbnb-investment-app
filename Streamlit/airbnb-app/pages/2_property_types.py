@@ -5,6 +5,39 @@ import json
 import time
 import altair as alt
 
+#CUSTOM CSS FOR PAGE DESIGN GOES HERE
+
+st.markdown(
+    """
+    <style>
+    div.stButton > button {
+        width: 100%;
+        height: 90px;
+        font-size: 20px;
+        font-weight: 600;
+        border-radius: 14px;
+        white-space: pre-line;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line;
+        text-align: center;
+        line-height: 1.3;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+page_col1, page_col2, empty_col = st.columns([1,1,6])
+with page_col1:
+    if st.button('Landing', use_container_width = True):
+        st.switch_page('landing.py')
+
+with page_col2:
+    if st.button('Area Overview', use_container_width = True):
+        st.switch_page('pages/1_area_overview.py')
+
 def format_money(value):
     if pd.isna(value):
         return "N/A"
@@ -30,29 +63,6 @@ def format_percent(value):
 
 st.set_page_config(layout="wide")
 
-st.markdown(
-    """
-    <style>
-    div.stButton > button {
-        white-space: pre-line;
-        min-height: 80px;
-    }
-
-    div.stButton > button p {
-        white-space: pre-line;
-        text-align: center;
-        font-size: 13px;
-        line-height: 1.3;
-    }
-
-    div.stButton > button p::first-line {
-        font-size: 18px;
-        font-weight: 700;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
@@ -80,12 +90,7 @@ if "starred_property_types" not in st.session_state:
 if "property_pie_view" not in st.session_state:
     st.session_state["property_pie_view"] = "main"
 
-if len(st.session_state['starred_property_types']) == 3:
-    if st.button('Continue to Listing Candidates'):
-        st.switch_page('pages/3_listing_candidates.py')
-else:
-    st.button('Continue to Listing Candidates', disabled = True)
-    st.caption('Select exactly 3 Property Types before continuing.')
+
 #TITLE ---
 
 st.title('Property Type')
@@ -315,19 +320,19 @@ if selected_neighbourhood is not None:
                     def star_property(selected_row):
                         property_item = create_property_item(selected_row)
                 
-                        if property_is_already_starred(property_item):
-                            st.info(f"{property_item['property_group']} is already selected.")
+                        if not property_is_already_starred(property_item):
+                            if len(st.session_state["starred_property_types"]) >= 3:
+                                st.warning("You can only star 3 property types.")
                 
-                        elif len(st.session_state["starred_property_types"]) >= 3:
-                            st.warning("You can only star 3 property types.")
-                
-                        else:
-                            st.session_state["starred_property_types"].append(property_item)
-                            st.success(f"Added {property_item['property_group']} to starred property types.")
-                            st.rerun()
+                            else:
+                                st.session_state["starred_property_types"].append(property_item)
+                                st.success(f"Added {property_item['property_group']} to starred property types.")
+                                st.rerun()
                 
                     if st.session_state["property_pie_view"] == "main":
-                
+
+                        chart_data["MEDIAN_ANNUAL_REVENUE_PER_ROOM"] = (chart_data["MEDIAN_ANNUAL_REVENUE"] / chart_data["AVERAGE_BEDROOMS"].replace(0, pd.NA))
+
                         grouped_chart_data = (
                             chart_data
                             .groupby("PIE_GROUP", as_index=False)
@@ -336,6 +341,7 @@ if selected_neighbourhood is not None:
                                 INVESTMENT_SCORE=("INVESTMENT_SCORE_YIELD" if score_column == "INVESTMENT_SCORE_YIELD" else score_column, "mean"),
                                 AVERAGE_ADR=("AVERAGE_ADR", "mean"),
                                 MEDIAN_ADR=("MEDIAN_ADR", "mean"),
+                                MEDIAN_ANNUAL_REVENUE_PER_ROOM=("MEDIAN_ANNUAL_REVENUE_PER_ROOM", "mean"),
                                 AVERAGE_ANNUAL_REVENUE=("AVERAGE_ANNUAL_REVENUE", "mean"),
                                 MEDIAN_ANNUAL_REVENUE=("MEDIAN_ANNUAL_REVENUE", "mean"),
                                 AVERAGE_OCCUPANCY_RATE=("AVERAGE_OCCUPANCY_RATE", "mean"),
@@ -376,12 +382,13 @@ if selected_neighbourhood is not None:
                                     alt.Tooltip("PIE_GROUP:N", title="Property Type"),
                                     alt.Tooltip("LISTING_PERCENTAGE:Q", title="Listing Share (%)", format=".1f"),
                                     alt.Tooltip("LISTING_COUNT:Q", title="Listings", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE_PER_ROOM:Q", title="Median AR per Room", format=",.0f"),
                                     alt.Tooltip("INVESTMENT_SCORE:Q", title="Avg Investment Score", format=".2f"),
                                     alt.Tooltip("AVERAGE_ADR:Q", title="Avg ADR", format=",.0f"),
-                                    alt.Tooltip("MEDIAN_ADR:Q", title="Median ADR", format=",.0f"),
-                                    alt.Tooltip("AVERAGE_ANNUAL_REVENUE:Q", title="Avg Annual Revenue", format=",.0f"),
-                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE:Q", title="Median Annual Revenue", format=",.0f"),
-                                    alt.Tooltip("AVERAGE_OCCUPANCY_RATE:Q", title="Avg Occupancy", format=".1f"),
+                                    #alt.Tooltip("MEDIAN_ADR:Q", title="Median ADR", format=",.0f"),
+                                    #alt.Tooltip("AVERAGE_ANNUAL_REVENUE:Q", title="Avg Annual Revenue", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE:Q", title="Median AR", format=",.0f"),
+                                    #alt.Tooltip("AVERAGE_OCCUPANCY_RATE:Q", title="Avg Occupancy", format=".1f"),
                                     alt.Tooltip("AVERAGE_RATING:Q", title="Avg Rating", format=".2f"),
                                     alt.Tooltip("AVERAGE_BEDROOMS:Q", title="Avg Bedrooms", format=".1f"),
                                     alt.Tooltip("MEDIAN_SALE_PRICE:Q", title="Median Sale Price", format=",.0f"),
@@ -507,79 +514,101 @@ if selected_neighbourhood is not None:
                         st.markdown("### Starred Property Types")
 
                         starred_property_types = st.session_state["starred_property_types"]
-
-                        if len(starred_property_types) == 0:
-                            st.info("No property types starred yet.")
-
+                        starred_count = len(starred_property_types)
+                
+                        st.write(f"{starred_count}/3 selected")
+                
+                        if starred_count < 3:
+                            st.info("Select 3 property types to continue.")
+                        elif starred_count == 3:
+                            st.success("Ready to continue.")
+                
+                        if starred_count == 0:
+                            st.write("No property types starred yet.")
+                
                         else:
-                            for i, item in enumerate(starred_property_types):
-                                with st.container(border=True):
-                                    st.markdown(f"### ⭐ {item['property_group']}")
-                                    st.markdown(f"**{item['neighbourhood']}**")
-                                    st.caption(item["city"])
-
+                            for item in starred_property_types:
+                                property_group = item["property_group"]
+                                neighbourhood = item["neighbourhood"]
+                                city_name = item["city"]
+                
+                                star_col1, star_col2 = st.columns([3, 1])
+                
+                                with star_col1:
+                                    st.write(f"**⭐ {property_group}**")
+                                    st.write(neighbourhood)
+                                    st.caption(city_name)
+                
                                     if "investment_score" in item:
                                         st.caption(f"Investment Score: {item['investment_score']:,.2f}")
-
+                
+                                with star_col2:
                                     if st.button(
                                         "🗑️",
-                                        key=f"remove_starred_property_{i}_{item['city']}_{item['neighbourhood']}_{item['property_group']}",
+                                        key="remove_starred_property_" + city_name + "_" + neighbourhood + "_" + property_group,
                                         use_container_width=True
                                     ):
-                                        st.session_state["starred_property_types"].pop(i)
+                                        st.session_state["starred_property_types"].remove(item)
                                         st.rerun()
-
-                        st.caption(f"{len(starred_property_types)} / 3 selected")
-
+                        
+                        #COMPARISON PAGE BUTTON GOES HERE
+                        
+                        if len(st.session_state['starred_property_types']) == 3:
+                            if st.button('Continue to Listing Candidates', use_container_width = True):
+                                st.switch_page('pages/3_listing_candidates.py')
+                        else:
+                            st.button('Continue to Listing Candidates', disabled = True)
+                            st.caption('Select exactly 3 Property Types before continuing.')
 #---
 with st.bottom:
-    with st.expander("AI Summary"):
+    #with st.expander("AI Summary"):
 
-        persona = st.session_state.get("persona", None)
-        selected_neighbourhood = st.session_state.get("selected_property_neighbourhood", None)
-        selected_city = st.session_state.get("selected_property_city", None)
+    persona = st.session_state.get("persona", None)
+    selected_neighbourhood = st.session_state.get("selected_property_neighbourhood", None)
+    selected_city = st.session_state.get("selected_property_city", None)
 
-        if persona is None:
-            st.warning("No persona has been selected yet.")
+    if persona is None:
+        st.warning("No persona has been selected yet.")
 
-        elif selected_neighbourhood is None:
-            st.warning("No neighbourhood has been selected yet.")
+    elif selected_neighbourhood is None:
+        st.warning("No neighbourhood has been selected yet.")
 
-        else:
-            st.write("This is your AI summary using persona:", persona)
+    else:
+        st.write("This is your AI summary using persona:", persona)
 
-            st.header(selected_neighbourhood)
+        st.header(selected_neighbourhood)
 
-            mask = (
-                (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
-                & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
-                & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
-            )
+        mask = (
+            (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
+            & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
+            & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
+        )
 
-            matches = ai_summary.loc[mask, "ai_narrative"]
+        matches = ai_summary.loc[mask, "ai_narrative"]
 
-            if not matches.empty:
-                narrative_dict = json.loads(matches.iloc[0])
+        if not matches.empty:
+            narrative_dict = json.loads(matches.iloc[0])
 
-                recommendation_summary = narrative_dict.get(
-                    "recommendation_summary",
+            recommendation_summary = narrative_dict.get(
+                "recommendation_summary",
+                narrative_dict.get(
+                    "investment_summary",
                     narrative_dict.get(
-                        "investment_summary",
-                        narrative_dict.get(
-                            "summary",
-                            "No recommendation summary available."
-                        )
+                        "summary",
+                        "No recommendation summary available."
                     )
                 )
-            
-                top_pick = narrative_dict.get("top_pick", None)
-                top_pick_reason = narrative_dict.get("top_pick_reason", None)
-                second_pick = narrative_dict.get("second_pick", None)
-                second_pick_reason = narrative_dict.get("second_pick_reason", None)
-                what_to_avoid = narrative_dict.get("what_to_avoid", None)
-            
-                st.write(recommendation_summary)
-            
+            )
+        
+            top_pick = narrative_dict.get("top_pick", None)
+            top_pick_reason = narrative_dict.get("top_pick_reason", None)
+            second_pick = narrative_dict.get("second_pick", None)
+            second_pick_reason = narrative_dict.get("second_pick_reason", None)
+            what_to_avoid = narrative_dict.get("what_to_avoid", None)
+        
+            st.write(recommendation_summary)
+
+            with st.expander('Click for more'):
                 st.subheader("**Top Pick**")
                 st.write(f"**{top_pick}**")
             
@@ -588,14 +617,14 @@ with st.bottom:
             
                 st.subheader("**Second Pick**")
                 st.write(f"**{second_pick}**")
-
+    
                 st.caption("Reason:")
                 st.write(second_pick_reason)
-
+    
                 st.subheader("**What to Avoid**")
                 st.write(what_to_avoid)
-            
-            else:
-                st.warning(
-                    "No AI recommendation found for this persona/neighbourhood combination."
+        
+        else:
+            st.warning(
+                "No AI recommendation found for this persona/neighbourhood combination."
                 )

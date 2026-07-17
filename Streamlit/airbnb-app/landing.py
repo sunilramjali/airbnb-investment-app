@@ -2,11 +2,106 @@
 import streamlit as st
 import os
 
+st.markdown(
+    """
+    <style>
+    /* Main app */
+    .stApp {
+        background-color: white !important;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: white !important;
+    }
+
+    /* Big headings */
+    h1, h2 {
+        color: #f26359 !important;
+    }
+
+    /* Smaller headings */
+    h3, h4, h5, h6 {
+        color: #000000 !important;
+    }
+
+    /* Normal markdown text */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #000000 !important;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #f26359 !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background-color: #FCEDEA !important;
+        color: #7A2E2A !important;
+        border: 1px solid #F26359 !important;
+        border-left: 6px solid #F26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] div {
+        color: #7A2E2A !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
+
+    /* Buttons */
+    div.stButton > button[kind="secondary"] {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #f8d9d3 !important;
+        border: 2px solid #f26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.set_page_config(
     page_title = 'Landing',
     page_icon = '👋'
 )
-st.sidebar.success('Select a page above')
 
 st.title("Airbnb Investment Intelligence")
 st.warning(
@@ -22,21 +117,6 @@ session = conn.session()
 
 if "persona" not in st.session_state:
     st.session_state["persona"] = None
-
-st.markdown(
-    """
-    <style>
-    div.stButton > button {
-        width: 100%;
-        height: 90px;
-        font-size: 20px;
-        font-weight: 600;
-        border-radius: 14px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 col1,col2,col3 = st.columns(3) 
 
