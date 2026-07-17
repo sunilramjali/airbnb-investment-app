@@ -19,9 +19,31 @@ st.markdown(
         background-color: white !important;
     }
 
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
     /* Sidebar */
     section[data-testid="stSidebar"] {
         background-color: white !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
     }
 
     /* Big headings */
@@ -207,7 +229,7 @@ def find_best_neighbourhoods(index):
 
     row = filtered_neighbourhoods.iloc[index]
 
-    st.header(str(index + 1) + '. ' + row['NEIGHBOURHOOD'])
+    st.header(row['NEIGHBOURHOOD'])
     st.caption(row['CITY'])
 
     st.metric('Investment rank', f"{row['INVESTMENT_RANK']}")
@@ -218,13 +240,34 @@ def find_best_neighbourhoods(index):
     st.metric('Area', f"{row['AREA']:,.2f} sqkm")
 
 with acol1:
-    find_best_neighbourhoods(0)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>1.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(0)
 
 with acol2:
-    find_best_neighbourhoods(1)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>2.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(1)
 
 with acol3:
-    find_best_neighbourhoods(2)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>3.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(2)
 
 #Pydeck map ---
 #CALCULATE CENTROIDS FOR THE BOUNDARIES
@@ -305,7 +348,7 @@ with map_col1:
         stroked=True,
         filled=True,
         extruded=False,
-        get_fill_color="[properties.is_top_three ? 0 : 255, properties.is_top_three ? 200 : 140, properties.is_top_three ? 80 : 120, 160]",
+        get_fill_color="[properties.is_top_three ? 0 : 255, properties.is_top_three ? 200 : 250, properties.is_top_three ? 80 : 120, 240]",
         get_line_color=[0, 0, 0],
         get_line_width=100,
         pickable=True,
@@ -357,9 +400,6 @@ with map_col1:
             if len(st.session_state['starred_neighbourhoods']) < 3:
                 st.session_state['starred_neighbourhoods'].append(selected_star)
                 st.rerun()
-            
-            else:
-                st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
 
         selected_properties = selected_objects[0]["properties"]
 
