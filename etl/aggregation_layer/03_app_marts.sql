@@ -422,17 +422,27 @@ SELECT
     ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE, 2)                                        AS ST_ANNUAL_REVENUE,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
          THEN ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
-    -- ---- Long-term (modelled; NULL for non-comparable 'Other') ----
+    -- ---- Long-term: OBSERVED ONS rent where available, else modelled assumption ----
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS ASSUMED_LT_GROSS_YIELD_PCT,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
-    CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS LT_GROSS_YIELD_PCT
+         THEN COALESCE(rr.ANNUAL_RENT,
+                       ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0)) END  AS LT_ANNUAL_RENT,
+    CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
+         THEN ROUND(COALESCE(rr.ANNUAL_RENT,
+                             c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100)
+                    / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END                              AS LT_GROSS_YIELD_PCT,
+    CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
+         THEN CASE WHEN rr.ANNUAL_RENT IS NOT NULL THEN 'observed' ELSE 'assumed' END END       AS LT_RENT_SOURCE
 FROM area_rev ar
 LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
     ON ar.NEIGHBOURHOOD = n.NEIGHBOURHOOD
 LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
     ON c.NEIGHBOURHOOD   = ar.NEIGHBOURHOOD
    AND c.STRUCTURE_CLASS = ar.STRUCTURE_CLASS
+LEFT JOIN GOLD.FCT_AREA_RENT rr
+    ON rr.NEIGHBOURHOOD = ar.NEIGHBOURHOOD
+   AND rr.CATEGORY_TYPE = 'structure'
+   AND rr.RENT_CATEGORY = ar.STRUCTURE_CLASS
 LEFT JOIN lt_yield y
     ON n.CITY = y.CITY;
 
@@ -508,17 +518,32 @@ SELECT
     ROUND(sr.MEDIAN_ST_ANNUAL_REVENUE, 2)                                        AS ST_ANNUAL_REVENUE,
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
          THEN ROUND(sr.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
-    -- ---- Long-term (area x structure assumption; NULL for 'Other') ----
+    -- ---- Long-term: OBSERVED ONS bedroom-specific rent where available, else modelled ----
+    --   ONS bedroom rent is independent of structure_class (ONS does not cross
+    --   bedroom x property type), so the same bedroom rent applies to Flat/House
+    --   rows; the yield still differs via the structure-specific sale price.
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS ASSUMED_LT_GROSS_YIELD_PCT,
     CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
-         THEN ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0) END           AS LT_ANNUAL_RENT,
-    CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House') THEN y.ASSUMED_LT_GROSS_YIELD_PCT END    AS LT_GROSS_YIELD_PCT
+         THEN COALESCE(rr.ANNUAL_RENT,
+                       ROUND(c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100, 0)) END  AS LT_ANNUAL_RENT,
+    CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
+         THEN ROUND(COALESCE(rr.ANNUAL_RENT,
+                             c.MEDIAN_SALE_PRICE * y.ASSUMED_LT_GROSS_YIELD_PCT / 100)
+                    / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END                              AS LT_GROSS_YIELD_PCT,
+    CASE WHEN sr.STRUCTURE_CLASS IN ('Flat', 'House')
+         THEN CASE WHEN rr.ANNUAL_RENT IS NOT NULL THEN 'observed' ELSE 'assumed' END END       AS LT_RENT_SOURCE
 FROM seg_rev sr
 LEFT JOIN GOLD.DIM_NEIGHBOURHOOD n
     ON sr.NEIGHBOURHOOD = n.NEIGHBOURHOOD
 LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
     ON c.NEIGHBOURHOOD   = sr.NEIGHBOURHOOD
    AND c.STRUCTURE_CLASS = sr.STRUCTURE_CLASS
+LEFT JOIN GOLD.FCT_AREA_RENT rr
+    ON rr.NEIGHBOURHOOD = sr.NEIGHBOURHOOD
+   AND rr.CATEGORY_TYPE = 'bedroom'
+   AND rr.RENT_CATEGORY = CASE sr.BEDROOM_BUCKET
+                              WHEN '1' THEN '1' WHEN '2' THEN '2' WHEN '3' THEN '3'
+                              WHEN '4' THEN '4+' WHEN '5+' THEN '4+' END   -- Studio/Unknown -> no match -> assumption
 LEFT JOIN lt_yield y
     ON n.CITY = y.CITY;
 
@@ -770,8 +795,9 @@ COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.MEDIAN_SALE_PRICE IS 'Land Registry me
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_ANNUAL_REVENUE IS 'Median short-term (Airbnb) annual revenue.';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent = ST revenue / sale price (NULL for Other).';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ASSUMED_LT_GROSS_YIELD_PCT IS 'Per-city assumed long-term gross yield percent (documented assumption).';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_ANNUAL_RENT IS 'Modelled long-term annual rent = sale price x assumed yield.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent (equals the assumption; NULL for Other).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_ANNUAL_RENT IS 'Long-term annual rent: observed ONS PIPR rent x 12 where available, else modelled (sale price x assumed yield). See LT_RENT_SOURCE.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent = LT_ANNUAL_RENT / median sale price (NULL for Other). Real when LT_RENT_SOURCE=observed.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_RENT_SOURCE IS 'observed = real ONS PIPR rent; assumed = modelled fallback (no ONS coverage, e.g. City of London). NULL for Other.';
 
 -- ---- MART_AREA_STRATEGY_BEDROOMS ----
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.NEIGHBOURHOOD IS 'Area name.';
@@ -785,8 +811,9 @@ COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.MEDIAN_SALE_PRICE IS 'Area x 
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ST_ANNUAL_REVENUE IS 'Median short-term annual revenue for the bucket (bedroom-specific).';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent (NULL for Other).';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.ASSUMED_LT_GROSS_YIELD_PCT IS 'Per-city assumed long-term gross yield percent (documented assumption).';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_ANNUAL_RENT IS 'Modelled long-term annual rent = sale price x assumed yield.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent (NULL for Other).';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_ANNUAL_RENT IS 'Long-term annual rent: observed ONS PIPR bedroom-specific rent x 12 where available, else modelled (sale price x assumed yield). See LT_RENT_SOURCE.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent = LT_ANNUAL_RENT / median sale price (NULL for Other). Real when LT_RENT_SOURCE=observed.';
+COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY_BEDROOMS.LT_RENT_SOURCE IS 'observed = real ONS PIPR bedroom rent (independent of structure_class); assumed = modelled fallback (Studio/Unknown/no ONS coverage). NULL for Other.';
 
 -- ---- MART_AREA_AMENITIES ----
 COMMENT ON COLUMN GOLD.MART_AREA_AMENITIES.NEIGHBOURHOOD IS 'Area name.';

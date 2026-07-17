@@ -11,8 +11,8 @@
 #   1) Silver built (etl/cleaning_layer/cleaning_layer.py).
 #   2) Change tracking enabled on the SILVER source tables that
 #      feed the dynamic tables (LISTINGS_CLEANED, CALENDAR_CLEANED,
-#      POI_CLEANED, NEIGHBOURHOODS_GEO_CLEANED) — otherwise the
-#      dynamic-table refresh fails.
+#      POI_CLEANED, NEIGHBOURHOODS_GEO_CLEANED, ONS_PRIVATE_RENT_CLEANED,
+#      NEIGHBOURHOOD_ONS_AREA_MAP) — otherwise the dynamic-table refresh fails.
 # Then run this file. It executes, in order:
 #   1) 01_dimensions.sql  -> GOLD.DIM_* (+ generated DIM_DATE).
 #   2) 02_facts.sql       -> GOLD.FCT_*.
@@ -75,6 +75,7 @@ STEPS = [
             "GOLD.FCT_LISTING_SNAPSHOT",
             "GOLD.FCT_LISTING_POI",
             "GOLD.FCT_AREA_SALE_PRICE",
+            "GOLD.FCT_AREA_RENT",
         ],
     },
     {

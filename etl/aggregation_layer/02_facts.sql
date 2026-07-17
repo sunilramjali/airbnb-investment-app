@@ -161,3 +161,72 @@ SELECT
 FROM sales
 WHERE property_type_code IN ('F', 'D', 'S', 'T')   -- pooled residential (excludes Other)
 GROUP BY NEIGHBOURHOOD, CITY;
+
+-- ------------------------------------------------------------
+-- FCT_AREA_RENT — observed long-term rent benchmark (ONS PIPR).
+-- Grain: NEIGHBOURHOOD x RENT_CATEGORY, with CATEGORY_TYPE:
+--   'overall'   -> RENT_CATEGORY 'All'          (ONS "All property types")
+--   'structure' -> RENT_CATEGORY 'Flat'/'House' (Flat = Flat/Maisonette;
+--                  House = mean of Detached/Semi-detached/Terraced) — matches
+--                  FCT_AREA_SALE_PRICE.STRUCTURE_CLASS for the strategy mart.
+--   'bedroom'   -> RENT_CATEGORY '1'/'2'/'3'/'4+' (ONS 4+ covers 4 and 5+) —
+--                  for the bedrooms mart. NOTE: ONS does NOT cross bedroom x
+--                  structure, so bedroom rent is independent of structure_class.
+--
+-- Source: SILVER.ONS_PRIVATE_RENT_CLEANED (latest published month) placed into
+--   Airbnb neighbourhoods via SILVER.NEIGHBOURHOOD_ONS_AREA_MAP. RENT_GRAIN
+--   flags resolution: 'exact' (London borough / GM district) vs 'broadcast'
+--   (Manchester wards -> Manchester; Bristol wards -> city). This is the
+--   OBSERVED replacement for the per-city assumed yield in the strategy marts.
+-- FULL refresh (single-period snapshot). TARGET_LAG DOWNSTREAM (mart-anchored).
+-- ------------------------------------------------------------
+CREATE OR REPLACE DYNAMIC TABLE GOLD.FCT_AREA_RENT
+    TARGET_LAG = DOWNSTREAM
+    WAREHOUSE  = COMPUTE_WH
+    COMMENT    = 'Observed ONS private-rent benchmark. Grain: NEIGHBOURHOOD x RENT_CATEGORY (overall/structure/bedroom). Latest ONS month, placed into neighbourhoods via SILVER.NEIGHBOURHOOD_ONS_AREA_MAP (RENT_GRAIN exact/broadcast). House = mean of Detached/Semi/Terraced. Feeds real LT rent into MART_AREA_STRATEGY(_BEDROOMS).'
+AS
+WITH latest AS (
+    SELECT MAX(period) AS period FROM SILVER.ONS_PRIVATE_RENT_CLEANED
+),
+rent AS (
+    SELECT r.area_code, r.period, r.category, r.category_type, r.property_class, r.rental_price
+    FROM SILVER.ONS_PRIVATE_RENT_CLEANED r
+    JOIN latest l ON r.period = l.period
+    WHERE r.rental_price IS NOT NULL
+),
+joined AS (
+    SELECT x.NEIGHBOURHOOD, x.CITY, x.RENT_GRAIN, r.period,
+           r.category, r.category_type, r.property_class, r.rental_price
+    FROM SILVER.NEIGHBOURHOOD_ONS_AREA_MAP x
+    JOIN rent r ON r.area_code = x.ONS_AREA_CODE
+    WHERE x.ONS_AREA_CODE IS NOT NULL
+)
+-- overall
+SELECT NEIGHBOURHOOD, CITY, 'All' AS RENT_CATEGORY, 'overall' AS CATEGORY_TYPE,
+       ROUND(rental_price, 0)      AS MONTHLY_RENT,
+       ROUND(rental_price * 12, 0) AS ANNUAL_RENT,
+       period                      AS RENT_PERIOD,
+       RENT_GRAIN
+FROM joined WHERE category = 'All property types'
+UNION ALL
+-- structure: Flat
+SELECT NEIGHBOURHOOD, CITY, 'Flat', 'structure',
+       ROUND(rental_price, 0), ROUND(rental_price * 12, 0), period, RENT_GRAIN
+FROM joined WHERE category = 'Flat/Maisonette'
+UNION ALL
+-- structure: House = mean of Detached / Semi-detached / Terraced
+SELECT NEIGHBOURHOOD, CITY, 'House', 'structure',
+       ROUND(AVG(rental_price), 0), ROUND(AVG(rental_price) * 12, 0),
+       ANY_VALUE(period), ANY_VALUE(RENT_GRAIN)
+FROM joined WHERE property_class = 'House'
+GROUP BY NEIGHBOURHOOD, CITY
+UNION ALL
+-- bedroom buckets (ONS 4+ covers buckets 4 and 5+)
+SELECT NEIGHBOURHOOD, CITY,
+       CASE category WHEN 'One bedroom'           THEN '1'
+                     WHEN 'Two bedrooms'          THEN '2'
+                     WHEN 'Three bedrooms'        THEN '3'
+                     WHEN 'Four or more bedrooms' THEN '4+' END,
+       'bedroom',
+       ROUND(rental_price, 0), ROUND(rental_price * 12, 0), period, RENT_GRAIN
+FROM joined WHERE category_type = 'bedroom';
