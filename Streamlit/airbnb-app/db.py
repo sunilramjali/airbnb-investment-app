@@ -1,9 +1,13 @@
-"""Shared Snowflake connection for running the app outside Snowflake.
+# Shared Snowflake connection that works both inside Snowflake and externally.
+# Co-authored with CoCo
+"""Shared Snowflake connection for the app.
 
-Builds a Snowpark Session from the service-user key-pair credentials in
-st.secrets["connections"]["snowflake"]. Supports the private key supplied
-either inline as PEM text (private_key) or as a file path (private_key_file),
-so the same code works on Streamlit Community Cloud and self-hosted setups.
+Inside Snowflake (Streamlit in Snowflake) it reuses the active Snowpark
+session, so no credentials are required. When running outside Snowflake
+(e.g. Streamlit Community Cloud or self-hosted) it falls back to building a
+Session from the service-user key-pair credentials in
+st.secrets["connections"]["snowflake"]. The private key may be supplied
+either inline as PEM text (private_key) or as a file path (private_key_file).
 """
 import streamlit as st
 from snowflake.snowpark import Session
@@ -12,6 +16,14 @@ from cryptography.hazmat.primitives import serialization
 
 @st.cache_resource
 def get_session() -> Session:
+    # In-Snowflake path: reuse the active session (no secrets needed).
+    try:
+        from snowflake.snowpark.context import get_active_session
+        return get_active_session()
+    except Exception:
+        pass
+
+    # External path: build a session from key-pair credentials in secrets.
     cfg = dict(st.secrets["connections"]["snowflake"])
 
     pem = cfg.pop("private_key", None)
