@@ -1,6 +1,23 @@
-This is a guide for this project. Read the `docs/` files for more detailed information.
+# UK Airbnb Investment App
 
-For the big-picture pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
+A Snowflake-native data application that helps property investors compare **short-term
+(Airbnb) vs long-term (buy-to-let) returns** across **London, Greater Manchester, and
+Bristol** — by neighbourhood, property type, and bedroom count.
+
+It blends five public datasets in a Bronze → Silver → Gold (medallion) pipeline:
+
+- **Inside Airbnb** — listings, calendar, reviews (short-term revenue & occupancy)
+- **HM Land Registry Price Paid** — residential sale prices (purchase cost)
+- **ONS Price Index of Private Rents** — observed long-term market rents
+- **Overture Places** — points of interest / amenities
+- **OS Code-Point Open** — postcode → neighbourhood geography
+
+The gold layer serves denormalised marts the app reads directly — area overviews, per-listing
+comparisons, and short-term-vs-long-term **gross-yield** strategy screens — all computed in
+Snowflake with no query-time joins.
+
+This file is the project guide; read the `docs/` files for more detail. For the big-picture
+pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
 
 ----------------------------------------------------------
 
