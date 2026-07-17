@@ -2,32 +2,43 @@ import streamlit as st
 import os
 import pandas as pd
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+#CUSTOM CSS FOR PAGE DESIGN GOES HERE
 
 st.markdown(
     """
     <style>
     div.stButton > button {
+        width: 100%;
+        height: 90px;
+        font-size: 20px;
+        font-weight: 600;
+        border-radius: 14px;
         white-space: pre-line;
-        min-height: 80px;
     }
 
     div.stButton > button p {
         white-space: pre-line;
         text-align: center;
-        font-size: 13px;
         line-height: 1.3;
-    }
-
-    div.stButton > button p::first-line {
-        font-size: 18px;
-        font-weight: 700;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
+
+page_col1, page_col2, page_col_3, empty_col = st.columns([1,1,1,5])
+with page_col1:
+    if st.button('Landing', use_container_width = True):
+        st.switch_page('landing.py')
+
+with page_col2:
+    if st.button('Area Overview', use_container_width = True):
+        st.switch_page('pages/1_area_overview.py')
+
+with page_col_3:
+    if st.button('Property Types', use_container_width = True):
+        st.switch_page('pages/2_property_types.py')
+
 
 if "selected_listing_property_group" not in st.session_state:
     st.session_state["selected_listing_property_group"] = None
@@ -49,7 +60,11 @@ if "starred_listings" not in st.session_state:
 st.title('Listing Candidates')
 st.subheader('Out of your favourite Property types, find the 10 best listings based on your selected persona. Choose 3 listings that spark the most interest, from any of the property types.')
 
+
 #SQL QUERY ---
+conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
+session = conn.session()
+
 @st.cache_data(ttl=600)
 def load_listings(_session):
     return _session.sql(
@@ -90,7 +105,7 @@ def load_listings(_session):
                 
                 FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
                 
-                INNER JOIN TESTER123GOLD.GOLD.INVESTMENT_SCORES b
+                INNER JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
                     ON a.LISTING_ID = b.LISTING_ID
                 
                 WHERE 
@@ -107,7 +122,7 @@ def load_summary(_session):
     return _session.sql(
         """
         SELECT *
-FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
@@ -320,7 +335,7 @@ if selected_property_group is not None:
                                         st.caption(f"Investment Score: **{item['investment_score']:,.2f}**")
                 
                                     if st.button(
-                                        "Remove",
+                                        "🗑️",
                                         key=f"remove_starred_listing_{i}_{item['listing_id']}",
                                         use_container_width=True
                                     ):

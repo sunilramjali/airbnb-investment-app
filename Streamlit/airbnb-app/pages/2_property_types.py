@@ -3,6 +3,40 @@ import os
 import pandas as pd
 import json
 import time
+import altair as alt
+
+#CUSTOM CSS FOR PAGE DESIGN GOES HERE
+
+st.markdown(
+    """
+    <style>
+    div.stButton > button {
+        width: 100%;
+        height: 90px;
+        font-size: 20px;
+        font-weight: 600;
+        border-radius: 14px;
+        white-space: pre-line;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line;
+        text-align: center;
+        line-height: 1.3;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+page_col1, page_col2, empty_col = st.columns([1,1,6])
+with page_col1:
+    if st.button('Landing', use_container_width = True):
+        st.switch_page('landing.py')
+
+with page_col2:
+    if st.button('Area Overview', use_container_width = True):
+        st.switch_page('pages/1_area_overview.py')
 
 def format_money(value):
     if pd.isna(value):
@@ -27,33 +61,8 @@ def format_percent(value):
         return "N/A"
     return f"{value:,.1f}%"
 
-st.cache_data.clear()
-
 st.set_page_config(layout="wide")
 
-st.markdown(
-    """
-    <style>
-    div.stButton > button {
-        white-space: pre-line;
-        min-height: 80px;
-    }
-
-    div.stButton > button p {
-        white-space: pre-line;
-        text-align: center;
-        font-size: 13px;
-        line-height: 1.3;
-    }
-
-    div.stButton > button p::first-line {
-        font-size: 18px;
-        font-weight: 700;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
@@ -78,12 +87,10 @@ if "selected_property_city" not in st.session_state:
 if "starred_property_types" not in st.session_state:
     st.session_state["starred_property_types"] = []
 
-if len(st.session_state['starred_property_types']) == 3:
-    if st.button('Continue to Listing Candidates'):
-        st.switch_page('pages/3_listing_candidates.py')
-else:
-    st.button('Continue to Listing Candidates', disabled = True)
-    st.caption('Select exactly 3 Property Types before continuing.')
+if "property_pie_view" not in st.session_state:
+    st.session_state["property_pie_view"] = "main"
+
+
 #TITLE ---
 
 st.title('Property Type')
@@ -123,7 +130,7 @@ def load_property_types(_session):
         
             FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
         
-            LEFT JOIN TESTER123GOLD.GOLD.INVESTMENT_SCORES b
+            LEFT JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
             
             ON a.LISTING_ID = b.LISTING_ID
         
@@ -147,7 +154,7 @@ def load_summary(_session):
     return _session.sql(
         """
         SELECT *
-FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
@@ -262,156 +269,346 @@ if selected_neighbourhood is not None:
                 list_col, starred_col = st.columns([2, 1], gap="medium")
 
                 with list_col:
-                    st.markdown("### All Property Types in this neighbourhood")
+                    st.markdown("### Property Type Listing Share")
 
-                    for row in all_property_types.itertuples():
-                        property_group = row.PROPERTY_GROUP
-                        neighbourhood = row.NEIGHBOURHOOD
-                        city = row.CITY
-                        listing_count = row.LISTING_COUNT
-                        investment_score = getattr(row, score_column)
-
-                        property_item = {
-                            "property_group": property_group,
-                            "neighbourhood": neighbourhood,
-                            "city": city,
-                            "listing_count": listing_count,
-                            "investment_score": investment_score,
+                    chart_data = all_property_types.copy()
+                
+                    def get_pie_group(property_group):
+                        property_group_clean = str(property_group).strip().lower()
+                
+                        if property_group_clean == "house":
+                            return "House"
+                        elif property_group_clean == "apartment / flat":
+                            return "Apartment / Flat"
+                        else:
+                            return "Others"
+                
+                    chart_data["PIE_GROUP"] = chart_data["PROPERTY_GROUP"].apply(get_pie_group)
+                
+                    def create_property_item(selected_row):
+                        return {
+                            "property_group": selected_row["PROPERTY_GROUP"],
+                            "neighbourhood": selected_row["NEIGHBOURHOOD"],
+                            "city": selected_row["CITY"],
+                            "listing_count": selected_row["LISTING_COUNT"],
+                            "investment_score": selected_row[score_column],
                             "persona": persona,
-                            "average_adr": row.AVERAGE_ADR,
-                            "median_adr": row.MEDIAN_ADR,
-                            "average_annual_revenue": row.AVERAGE_ANNUAL_REVENUE,
-                            "median_annual_revenue": row.MEDIAN_ANNUAL_REVENUE,
-                            "average_occupancy_rate": row.AVERAGE_OCCUPANCY_RATE,
-                            "average_rating": row.AVERAGE_RATING,
-                            "average_bedrooms": row.AVERAGE_BEDROOMS,
-                            "median_sale_price": row.MEDIAN_SALE_PRICE,
-                            "sale_txn_count": row.SALE_TXN_COUNT
+                            "average_adr": selected_row["AVERAGE_ADR"],
+                            "median_adr": selected_row["MEDIAN_ADR"],
+                            "average_annual_revenue": selected_row["AVERAGE_ANNUAL_REVENUE"],
+                            "median_annual_revenue": selected_row["MEDIAN_ANNUAL_REVENUE"],
+                            "average_occupancy_rate": selected_row["AVERAGE_OCCUPANCY_RATE"],
+                            "average_rating": selected_row["AVERAGE_RATING"],
+                            "average_bedrooms": selected_row["AVERAGE_BEDROOMS"],
+                            "median_sale_price": selected_row["MEDIAN_SALE_PRICE"],
+                            "sale_txn_count": selected_row["SALE_TXN_COUNT"]
                         }
-
-                        property_key = f"{city}_{neighbourhood}_{property_group}_{persona}"
-
-                        already_starred = any(
+                
+                    def property_is_already_starred(property_item):
+                        property_key = (
+                            f"{property_item['city']}_"
+                            f"{property_item['neighbourhood']}_"
+                            f"{property_item['property_group']}_"
+                            f"{property_item['persona']}"
+                        )
+                
+                        return any(
                             f"{item['city']}_{item['neighbourhood']}_{item['property_group']}_{item.get('persona', '')}" == property_key
                             for item in st.session_state["starred_property_types"]
                         )
+                
+                    def star_property(selected_row):
+                        property_item = create_property_item(selected_row)
+                
+                        if not property_is_already_starred(property_item):
+                            if len(st.session_state["starred_property_types"]) >= 3:
+                                st.warning("You can only star 3 property types.")
+                
+                            else:
+                                st.session_state["starred_property_types"].append(property_item)
+                                st.success(f"Added {property_item['property_group']} to starred property types.")
+                                st.rerun()
+                
+                    if st.session_state["property_pie_view"] == "main":
 
-                        with st.container(border=True):
-                            row_cols = st.columns([2.4, 1.8, 2.2, 1])
+                        chart_data["MEDIAN_ANNUAL_REVENUE_PER_ROOM"] = (chart_data["MEDIAN_ANNUAL_REVENUE"] / chart_data["AVERAGE_BEDROOMS"].replace(0, pd.NA))
 
-                            with row_cols[0]:
-                                st.markdown(f"## {property_group}")
-                        
-                            with row_cols[1]:
-                                st.markdown("### Performance")
-                                st.write(f"**Investment Score:** {format_decimal(investment_score, 2)}")
-                                st.write(f"**Listings:** {format_number(listing_count)}")
-                                st.write(f"**Avg Occupancy:** {format_percent(row.AVERAGE_OCCUPANCY_RATE)}")
-                                st.write(f"**Avg Rating:** {format_decimal(row.AVERAGE_RATING, 2)}")
-                                st.write(f"**Avg Bedrooms:** {format_decimal(row.AVERAGE_BEDROOMS, 1)}")
-                            
-                            with row_cols[2]:
-                                st.markdown("### Financials")
-                                st.write(f"**Avg ADR:** {format_money(row.AVERAGE_ADR)}")
-                                st.write(f"**Median ADR:** {format_money(row.MEDIAN_ADR)}")
-                                st.write(f"**Avg Annual Revenue:** {format_money(row.AVERAGE_ANNUAL_REVENUE)}")
-                                st.write(f"**Median Annual Revenue:** {format_money(row.MEDIAN_ANNUAL_REVENUE)}")
-                                st.write(f"**Median Sale Price:** {format_money(row.MEDIAN_SALE_PRICE)}")
-                                st.write(f"**Sale Transactions:** {format_number(row.SALE_TXN_COUNT)}")
-                        
-                            with row_cols[3]:
-                                if already_starred:
-                                    st.success("Selected")
-                                else:
-                                    if st.button(
-                                        "Star",
-                                        key=f"star_property_{property_key}",
-                                        use_container_width=True
-                                    ):
-                                        if len(st.session_state["starred_property_types"]) < 3:
-                                            st.session_state["starred_property_types"].append(property_item)
-                                            st.rerun()
-                                        else:
-                                            st.warning("You can only star 3 property types.")
+                        grouped_chart_data = (
+                            chart_data
+                            .groupby("PIE_GROUP", as_index=False)
+                            .agg(
+                                LISTING_COUNT=("LISTING_COUNT", "sum"),
+                                INVESTMENT_SCORE=("INVESTMENT_SCORE_YIELD" if score_column == "INVESTMENT_SCORE_YIELD" else score_column, "mean"),
+                                AVERAGE_ADR=("AVERAGE_ADR", "mean"),
+                                MEDIAN_ADR=("MEDIAN_ADR", "mean"),
+                                MEDIAN_ANNUAL_REVENUE_PER_ROOM=("MEDIAN_ANNUAL_REVENUE_PER_ROOM", "mean"),
+                                AVERAGE_ANNUAL_REVENUE=("AVERAGE_ANNUAL_REVENUE", "mean"),
+                                MEDIAN_ANNUAL_REVENUE=("MEDIAN_ANNUAL_REVENUE", "mean"),
+                                AVERAGE_OCCUPANCY_RATE=("AVERAGE_OCCUPANCY_RATE", "mean"),
+                                AVERAGE_RATING=("AVERAGE_RATING", "mean"),
+                                AVERAGE_BEDROOMS=("AVERAGE_BEDROOMS", "mean"),
+                                MEDIAN_SALE_PRICE=("MEDIAN_SALE_PRICE", "mean"),
+                                SALE_TXN_COUNT=("SALE_TXN_COUNT", "sum")
+                            )
+                        )
+                
+                        total_listings = grouped_chart_data["LISTING_COUNT"].sum()
+                
+                        grouped_chart_data["LISTING_PERCENTAGE"] = (
+                            grouped_chart_data["LISTING_COUNT"] / total_listings * 100
+                        )
+                
+                        property_selection = alt.selection_point(
+                            fields=["PIE_GROUP"],
+                            name="main_property_select"
+                        )
+                
+                        pie_chart = (
+                            alt.Chart(grouped_chart_data)
+                            .mark_arc(stroke="white", strokeWidth=2)
+                            .encode(
+                                theta=alt.Theta("LISTING_COUNT:Q"),
+                                color=alt.Color(
+                                    "PIE_GROUP:N",
+                                    title="Property Type",
+                                    scale=alt.Scale(scheme="category10")
+                                ),
+                                opacity=alt.condition(
+                                    property_selection,
+                                    alt.value(1),
+                                    alt.value(0.45)
+                                ),
+                                tooltip=[
+                                    alt.Tooltip("PIE_GROUP:N", title="Property Type"),
+                                    alt.Tooltip("LISTING_PERCENTAGE:Q", title="Listing Share (%)", format=".1f"),
+                                    alt.Tooltip("LISTING_COUNT:Q", title="Listings", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE_PER_ROOM:Q", title="Median AR per Room", format=",.0f"),
+                                    alt.Tooltip("INVESTMENT_SCORE:Q", title="Avg Investment Score", format=".2f"),
+                                    alt.Tooltip("AVERAGE_ADR:Q", title="Avg ADR", format=",.0f"),
+                                    #alt.Tooltip("MEDIAN_ADR:Q", title="Median ADR", format=",.0f"),
+                                    #alt.Tooltip("AVERAGE_ANNUAL_REVENUE:Q", title="Avg Annual Revenue", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE:Q", title="Median AR", format=",.0f"),
+                                    #alt.Tooltip("AVERAGE_OCCUPANCY_RATE:Q", title="Avg Occupancy", format=".1f"),
+                                    alt.Tooltip("AVERAGE_RATING:Q", title="Avg Rating", format=".2f"),
+                                    alt.Tooltip("AVERAGE_BEDROOMS:Q", title="Avg Bedrooms", format=".1f"),
+                                    alt.Tooltip("MEDIAN_SALE_PRICE:Q", title="Median Sale Price", format=",.0f"),
+                                    alt.Tooltip("SALE_TXN_COUNT:Q", title="Sale Transactions", format=",.0f"),
+                                ]
+                            )
+                            .add_params(property_selection)
+                            .properties(height=420)
+                        )
+                
+                        pie_event = st.altair_chart(
+                            pie_chart,
+                            use_container_width=True,
+                            key=f"main_property_type_pie_{selected_city}_{selected_neighbourhood}_{persona}",
+                            on_select="rerun"
+                        )
+                
+                        selected_group = None
+                
+                        try:
+                            selection_data = pie_event["selection"]["main_property_select"]
+                            if len(selection_data) > 0:
+                                selected_group = selection_data[0]["PIE_GROUP"]
+                        except Exception:
+                            selected_group = None
+                
+                        if selected_group == "Others":
+                            st.session_state["property_pie_view"] = "others"
+                            st.rerun()
+                
+                        elif selected_group in ["House", "Apartment / Flat"]:
+                            selected_rows = chart_data[
+                                chart_data["PROPERTY_GROUP"].astype(str).str.strip().str.lower()
+                                == selected_group.strip().lower()
+                            ]
+                
+                            if not selected_rows.empty:
+                                star_property(selected_rows.iloc[0])
+                
+                    else:
+                        st.markdown("#### Other Property Types")
+                
+                        if st.button("Back to main property groups"):
+                            st.session_state["property_pie_view"] = "main"
+                            st.rerun()
+                
+                        other_chart_data = chart_data[
+                            chart_data["PIE_GROUP"] == "Others"
+                        ].copy()
+                
+                        total_other_listings = other_chart_data["LISTING_COUNT"].sum()
+                
+                        other_chart_data["LISTING_PERCENTAGE"] = (
+                            other_chart_data["LISTING_COUNT"] / total_other_listings * 100
+                        )
+                
+                        other_selection = alt.selection_point(
+                            fields=["PROPERTY_GROUP"],
+                            name="other_property_select"
+                        )
+                
+                        other_pie_chart = (
+                            alt.Chart(other_chart_data)
+                            .mark_arc(stroke="white", strokeWidth=2)
+                            .encode(
+                                theta=alt.Theta("LISTING_COUNT:Q"),
+                                color=alt.Color(
+                                    "PROPERTY_GROUP:N",
+                                    title="Other Property Types",
+                                    scale=alt.Scale(scheme='set3')
+                                ),
+                                opacity=alt.condition(
+                                    other_selection,
+                                    alt.value(1),
+                                    alt.value(0.45)
+                                ),
+                                tooltip=[
+                                    alt.Tooltip("PROPERTY_GROUP:N", title="Property Type"),
+                                    alt.Tooltip("LISTING_PERCENTAGE:Q", title="Listing Share (%)", format=".1f"),
+                                    alt.Tooltip("LISTING_COUNT:Q", title="Listings", format=",.0f"),
+                                    alt.Tooltip(f"{score_column}:Q", title="Investment Score", format=".2f"),
+                                    alt.Tooltip("AVERAGE_ADR:Q", title="Avg ADR", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ADR:Q", title="Median ADR", format=",.0f"),
+                                    alt.Tooltip("AVERAGE_ANNUAL_REVENUE:Q", title="Avg Annual Revenue", format=",.0f"),
+                                    alt.Tooltip("MEDIAN_ANNUAL_REVENUE:Q", title="Median Annual Revenue", format=",.0f"),
+                                    alt.Tooltip("AVERAGE_OCCUPANCY_RATE:Q", title="Avg Occupancy", format=".1f"),
+                                    alt.Tooltip("AVERAGE_RATING:Q", title="Avg Rating", format=".2f"),
+                                    alt.Tooltip("AVERAGE_BEDROOMS:Q", title="Avg Bedrooms", format=".1f"),
+                                    alt.Tooltip("MEDIAN_SALE_PRICE:Q", title="Median Sale Price", format=",.0f"),
+                                    alt.Tooltip("SALE_TXN_COUNT:Q", title="Sale Transactions", format=",.0f"),
+                                ]
+                            )
+                            .add_params(other_selection)
+                            .properties(height=420)
+                        )
+                
+                        other_pie_event = st.altair_chart(
+                            other_pie_chart,
+                            use_container_width=True,
+                            key=f"other_property_type_pie_{selected_city}_{selected_neighbourhood}_{persona}",
+                            on_select="rerun"
+                        )
+                
+                        selected_other_property = None
+                
+                        try:
+                            other_selection_data = other_pie_event["selection"]["other_property_select"]
+                            if len(other_selection_data) > 0:
+                                selected_other_property = other_selection_data[0]["PROPERTY_GROUP"]
+                        except Exception:
+                            selected_other_property = None
+                
+                        if selected_other_property is not None:
+                            selected_rows = other_chart_data[
+                                other_chart_data["PROPERTY_GROUP"] == selected_other_property
+                            ]
+                
+                            if not selected_rows.empty:
+                                star_property(selected_rows.iloc[0])
 
                 with starred_col:
                     with st.container(border=True):
                         st.markdown("### Starred Property Types")
 
                         starred_property_types = st.session_state["starred_property_types"]
-
-                        if len(starred_property_types) == 0:
-                            st.info("No property types starred yet.")
-
+                        starred_count = len(starred_property_types)
+                
+                        st.write(f"{starred_count}/3 selected")
+                
+                        if starred_count < 3:
+                            st.info("Select 3 property types to continue.")
+                        elif starred_count == 3:
+                            st.success("Ready to continue.")
+                
+                        if starred_count == 0:
+                            st.write("No property types starred yet.")
+                
                         else:
-                            for i, item in enumerate(starred_property_types):
-                                with st.container(border=True):
-                                    st.markdown(f"### ⭐ {item['property_group']}")
-                                    st.markdown(f"**{item['neighbourhood']}**")
-                                    st.caption(item["city"])
-
+                            for item in starred_property_types:
+                                property_group = item["property_group"]
+                                neighbourhood = item["neighbourhood"]
+                                city_name = item["city"]
+                
+                                star_col1, star_col2 = st.columns([3, 1])
+                
+                                with star_col1:
+                                    st.write(f"**⭐ {property_group}**")
+                                    st.write(neighbourhood)
+                                    st.caption(city_name)
+                
                                     if "investment_score" in item:
                                         st.caption(f"Investment Score: {item['investment_score']:,.2f}")
-
+                
+                                with star_col2:
                                     if st.button(
-                                        "Remove",
-                                        key=f"remove_starred_property_{i}_{item['city']}_{item['neighbourhood']}_{item['property_group']}",
+                                        "🗑️",
+                                        key="remove_starred_property_" + city_name + "_" + neighbourhood + "_" + property_group,
                                         use_container_width=True
                                     ):
-                                        st.session_state["starred_property_types"].pop(i)
+                                        st.session_state["starred_property_types"].remove(item)
                                         st.rerun()
-
-                        st.caption(f"{len(starred_property_types)} / 3 selected")
-
+                        
+                        #COMPARISON PAGE BUTTON GOES HERE
+                        
+                        if len(st.session_state['starred_property_types']) == 3:
+                            if st.button('Continue to Listing Candidates', use_container_width = True):
+                                st.switch_page('pages/3_listing_candidates.py')
+                        else:
+                            st.button('Continue to Listing Candidates', disabled = True)
+                            st.caption('Select exactly 3 Property Types before continuing.')
 #---
 with st.bottom:
-    with st.expander("AI Summary"):
+    #with st.expander("AI Summary"):
 
-        persona = st.session_state.get("persona", None)
-        selected_neighbourhood = st.session_state.get("selected_property_neighbourhood", None)
-        selected_city = st.session_state.get("selected_property_city", None)
+    persona = st.session_state.get("persona", None)
+    selected_neighbourhood = st.session_state.get("selected_property_neighbourhood", None)
+    selected_city = st.session_state.get("selected_property_city", None)
 
-        if persona is None:
-            st.warning("No persona has been selected yet.")
+    if persona is None:
+        st.warning("No persona has been selected yet.")
 
-        elif selected_neighbourhood is None:
-            st.warning("No neighbourhood has been selected yet.")
+    elif selected_neighbourhood is None:
+        st.warning("No neighbourhood has been selected yet.")
 
-        else:
-            st.write("This is your AI summary using persona:", persona)
+    else:
+        st.write("This is your AI summary using persona:", persona)
 
-            st.header(selected_neighbourhood)
+        st.header(selected_neighbourhood)
 
-            mask = (
-                (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
-                & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
-                & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
-            )
+        mask = (
+            (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
+            & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
+            & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
+        )
 
-            matches = ai_summary.loc[mask, "ai_narrative"]
+        matches = ai_summary.loc[mask, "ai_narrative"]
 
-            if not matches.empty:
-                narrative_dict = json.loads(matches.iloc[0])
+        if not matches.empty:
+            narrative_dict = json.loads(matches.iloc[0])
 
-                recommendation_summary = narrative_dict.get(
-                    "recommendation_summary",
+            recommendation_summary = narrative_dict.get(
+                "recommendation_summary",
+                narrative_dict.get(
+                    "investment_summary",
                     narrative_dict.get(
-                        "investment_summary",
-                        narrative_dict.get(
-                            "summary",
-                            "No recommendation summary available."
-                        )
+                        "summary",
+                        "No recommendation summary available."
                     )
                 )
-            
-                top_pick = narrative_dict.get("top_pick", None)
-                top_pick_reason = narrative_dict.get("top_pick_reason", None)
-                second_pick = narrative_dict.get("second_pick", None)
-                second_pick_reason = narrative_dict.get("second_pick_reason", None)
-                what_to_avoid = narrative_dict.get("what_to_avoid", None)
-            
-                st.write(recommendation_summary)
-            
+            )
+        
+            top_pick = narrative_dict.get("top_pick", None)
+            top_pick_reason = narrative_dict.get("top_pick_reason", None)
+            second_pick = narrative_dict.get("second_pick", None)
+            second_pick_reason = narrative_dict.get("second_pick_reason", None)
+            what_to_avoid = narrative_dict.get("what_to_avoid", None)
+        
+            st.write(recommendation_summary)
+
+            with st.expander('Click for more'):
                 st.subheader("**Top Pick**")
                 st.write(f"**{top_pick}**")
             
@@ -420,14 +617,14 @@ with st.bottom:
             
                 st.subheader("**Second Pick**")
                 st.write(f"**{second_pick}**")
-
+    
                 st.caption("Reason:")
                 st.write(second_pick_reason)
-
+    
                 st.subheader("**What to Avoid**")
                 st.write(what_to_avoid)
-            
-            else:
-                st.warning(
-                    "No AI recommendation found for this persona/neighbourhood combination."
+        
+        else:
+            st.warning(
+                "No AI recommendation found for this persona/neighbourhood combination."
                 )

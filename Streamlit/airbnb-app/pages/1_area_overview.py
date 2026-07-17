@@ -1,25 +1,122 @@
-# Area overview page for Airbnb investment app
 import streamlit as st
 import os
 import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
-
 #st.write("Checking 1 2 3")
 
-st.cache_data.clear()
+#CUSTOM CSS FOR PAGE DESIGN GOES HERE
 
+st.markdown(
+    """
+    <style>
+    /* Main app */
+    .stApp {
+        background-color: white !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] {
+        background-color: white !important;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: white !important;
+    }
+
+    /* Big headings */
+    h1, h2 {
+        color: #f26359 !important;
+    }
+
+    /* Smaller headings */
+    h3, h4, h5, h6 {
+        color: #000000 !important;
+    }
+
+    /* Normal markdown text */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #000000 !important;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background-color: #FCEDEA !important;
+        color: #7A2E2A !important;
+        border: 1px solid #F26359 !important;
+        border-left: 6px solid #F26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] div {
+        color: #7A2E2A !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
+
+    /* Buttons */
+    div.stButton > button[kind="secondary"] {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #f8d9d3 !important;
+        border: 2px solid #f26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+if st.button('Landing'):
+    st.switch_page('landing.py')
+    
 st.set_page_config(layout = 'wide')
 
 if 'starred_neighbourhoods' not in st.session_state:
     st.session_state['starred_neighbourhoods'] = []
 
-if len(st.session_state['starred_neighbourhoods']) == 3:
-    if st.button('Continue to Property Types'):
-        st.switch_page('pages/2_property_types.py')
-else:
-    st.button('Continue to Property Types', disabled = True)
-    st.caption('Select exactly 3 neighbourhoods before continuing.')
+if 'selected_neighbourhood' not in st.session_state:
+    st.session_state['selected_neighbourhood'] = None
 
 conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
@@ -53,15 +150,15 @@ def load_neighbourhoods(_session, persona):
             n.TRANSPORT_COUNT AS transport_count,
             n.DINING_COUNT AS dining_count,
             n.AREA_SQKM AS area,
-            ST_ASGEOJSON(n.BOUNDARY) as boundary,
-            ST_Y(ST_CENTROID(n.BOUNDARY)) as lat,
-            ST_X(ST_CENTROID(n.BOUNDARY)) as lon,
+            ST_ASGEOJSON(ST_SIMPLIFY(n.BOUNDARY, 50)) as boundary,
+            ST_Y(ST_CENTROID(ST_SIMPLIFY(n.BOUNDARY, 50))) as lat,
+            ST_X(ST_CENTROID(ST_SIMPLIFY(n.BOUNDARY, 50))) as lon,
             l."investment_score" AS INVESTMENT_SCORE,
             ROW_NUMBER() OVER (ORDER BY l."investment_score" DESC) AS INVESTMENT_RANK
         
-        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA n
+        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_AREA_OVERVIEW n
         
-        JOIN  TESTER123GOLD.GOLD.AI_OUTPUTS l
+        JOIN  AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS l
         
         ON lower(n.neighbourhood) = lower(l."neighbourhood_cleansed")
 
@@ -76,7 +173,7 @@ def load_summary(_session):
     return _session.sql(
     """
         SELECT *
-        FROM TESTER123GOLD.GOLD.AI_OUTPUTS
+        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
@@ -90,8 +187,7 @@ neighbourhoods = load_neighbourhoods(session, persona)
 
 ai_summary = load_summary(session)
 
-#INTERACTIVE ELEMENTS ---
-
+#Sidebar filter ---
 city = st.sidebar.selectbox('City',('All','London','Bristol','Greater Manchester'))
 
 if city == 'All':
@@ -101,23 +197,7 @@ else:
 
 st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].tolist()
 
-#area = st.sidebar.selectbox('Area', st.session_state['neighbourhoods'])
-
 #VISUALISATIONS ---
-#col1,col2,col3,col4,col5 = st.columns(5,border=True)
-
-#with col1:
- #   st.metric('Average Yearly Revenue',f"£{neighbourhoods['AVERAGE_ANNUAL_REVENUE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.0f}")
-#with col2:
- #   st.metric('Average nightly price',f"£{neighbourhoods['AVERAGE_PRICE'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]:,.2f}")
-#with col3:
- #   st.metric('Number of listings',f"{neighbourhoods['LISTINGS_COUNT'][neighbourhoods['NEIGHBOURHOOD']==area].iloc[0]}")
-#with col4:
- #   st.write('Nighlife Venues: TBC')
-#with col5:
- #   st.write('Tourist Attractions: TBC')
-
-
 acol1, acol2, acol3 = st.columns([1, 1, 1], border=True)
 
 def find_best_neighbourhoods(index):
@@ -132,7 +212,7 @@ def find_best_neighbourhoods(index):
 
     st.metric('Investment rank', f"{row['INVESTMENT_RANK']}")
     st.metric('Investment score', f"{row['INVESTMENT_SCORE']:,.1f}")
-    st.metric('Average annual revenue', f"£{row['AVERAGE_ANNUAL_REVENUE']:,.0f}")
+    st.metric('Median annual revenue', f"£{row['MEDIAN_ANNUAL_REVENUE']:,.0f}")
     st.metric('Average rating', f"{row['AVERAGE_RATING']:,.2f}")
     st.metric('POI density', f"{row['POI_DENSITY']:,.2f} per sqkm")
     st.metric('Area', f"{row['AREA']:,.2f} sqkm")
@@ -146,7 +226,7 @@ with acol2:
 with acol3:
     find_best_neighbourhoods(2)
 
-#Experimenting with pydeck map ---
+#Pydeck map ---
 #CALCULATE CENTROIDS FOR THE BOUNDARIES
 neighbourhoods_center_lat = filtered_neighbourhoods['LAT'].mean()
 neighbourhoods_center_lon = filtered_neighbourhoods['LON'].mean()
@@ -212,7 +292,7 @@ def build_map_data(city, _filtered_df):
 #BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS AND SELECTS NEIGBURHOODS INTO STARRED SECTION
 geojson_data, view_state = build_map_data(city, filtered_neighbourhoods)
 
-
+st.caption('Tip: move your cursor outside the map before scrolling the page.')
 
 map_col1, map_col2 = st.columns([3, 1], border=True)
 
@@ -237,12 +317,18 @@ with map_col1:
             map_style="dark_no_labels",
             layers=[layer],
             initial_view_state=view_state,
+            views=[
+                pdk.View(
+                    type="MapView",
+                    controller={'scrollZoom': False}
+                )
+            ],
             tooltip={
                 "text": "{name}\n"
                         "City: {city}\n"
                         "Investment Rank: {investment_rank}\n"
                         "Investment Score: {investment_score}\n"
-                        "Average Annual Revenue: £{average_annual_revenue}\n"
+                        "Median Annual Revenue: £{median_annual_revenue}\n"
                         "Average Rating: {average_rating}\n"
                         "POI Density: {poi_density}\n"
                         "Area: {area} sqkm"
@@ -259,25 +345,25 @@ with map_col1:
     if selected_objects:
         selected_neighbourhood = selected_objects[0]["properties"]["name"]
         selected_city = selected_objects[0]["properties"]["city"]
+
+        st.session_state['selected_neighbourhood'] = {"neighbourhood": selected_neighbourhood, "city": selected_city}
         
         selected_star = {
             "neighbourhood": selected_neighbourhood,
             "city": selected_city
         }
         
-        if selected_star in st.session_state['starred_neighbourhoods']:
-            st.info(selected_neighbourhood + ' is already starred.')
-
-        elif len(st.session_state['starred_neighbourhoods']) < 3:
-            st.session_state['starred_neighbourhoods'].append(selected_star)
-            st.rerun()
-    
-        else:
-            st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
+        if selected_star not in st.session_state['starred_neighbourhoods']:
+            if len(st.session_state['starred_neighbourhoods']) < 3:
+                st.session_state['starred_neighbourhoods'].append(selected_star)
+                st.rerun()
+            
+            else:
+                st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
 
         selected_properties = selected_objects[0]["properties"]
 
-        with st.expander("Selected neighbourhood details", expanded=True):
+        with st.expander("Full analytics", expanded=True):
             dcol1, dcol2, dcol3, dcol4 = st.columns(4)
 
             with dcol1:
@@ -303,6 +389,9 @@ with map_col1:
                 st.metric("Dining count", f"{selected_properties['dining_count']:,}")
                 st.metric("Area", f"{selected_properties['area']} sqkm")
 
+    else:
+        st.session_state['selected_neighbourhood'] = None
+                
 with map_col2:
     st.subheader('Starred neighbourhoods')
 
@@ -329,61 +418,64 @@ with map_col2:
                 st.caption(city_name)
         
             with star_col2:
-                if st.button('Remove', key='remove_' + city_name + '_' + neighbourhood):
+                if st.button('🗑️', key='remove_' + city_name + '_' + neighbourhood):
                     st.session_state['starred_neighbourhoods'].remove(starred_area)
                     st.rerun()
 
-
+    #GENERATE ANALYSIS BUTTON GOES HERE
+    
+    if len(st.session_state['starred_neighbourhoods']) == 3:
+        if st.button('Continue to Property Types'):
+            st.switch_page('pages/2_property_types.py')
+    else:
+        st.button('Continue to Property Types', disabled = True)
+        st.caption('Select exactly 3 neighbourhoods before continuing.')
 #---
 with st.bottom:
-    with st.expander('AI Summary'):
+    persona = st.session_state.get('persona', None)
+    selected_area = st.session_state.get('selected_neighbourhood', None)
 
-        persona = st.session_state.get('persona', None)
-        starred_neighbourhoods = st.session_state.get('starred_neighbourhoods', [])
+    if persona is None:
+        st.warning('No persona has been selected yet.')
 
-        if persona is None:
-            st.warning('No persona has been selected yet.')
+    elif selected_area is None:
+        st.warning('Click a neighbourhood on the map to view its AI summary.')
 
-        elif len(starred_neighbourhoods) == 0:
-            st.warning('No starred neighbourhoods selected yet.')
+    else:
+        neighbourhood = selected_area['neighbourhood']
+        
+        st.write('This is your AI summary using persona:', persona)
+        st.header(neighbourhood)
+    
+        mask = (
+            (ai_summary['persona'].str.lower() == persona.lower())
+            & (ai_summary['neighbourhood_cleansed'].str.lower() == neighbourhood.lower())
+            & (ai_summary['output_type'].str.lower() == 'area_overview')
+        )
+    
+        matches = ai_summary.loc[mask, 'ai_narrative']
+    
+        if not matches.empty:
+            narrative_dict = json.loads(matches.iloc[0])
+            investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
+            key_strengths = narrative_dict.get('key_strengths')
+            key_risks = narrative_dict.get('key_risks')
+            confidence = narrative_dict.get('confidence')
+            recommended_action = narrative_dict.get('recommended_action')
+            st.write(investment_summary)
 
+            with st.expander('Click for more'):
+                st.caption(f"**Key Strengths**")
+                st.write(f"- {key_strengths[0]}")
+                st.write(f"- {key_strengths[1]}")
+                st.write(f"- {key_strengths[2]}")
+                
+                st.caption(f"**Key Risks**")
+                st.write(f"- {key_risks[0]}")
+                st.write(f"- {key_risks[1]}")
+
+                st.caption(f"**Recommended Action**")
+                st.write(recommended_action)
         else:
-            st.write('This is your AI summary using persona:', persona)
-
-            for starred_area in starred_neighbourhoods:
-                neighbourhood = starred_area['neighbourhood']
-                city_name = starred_area['city']
-            
-                st.header(neighbourhood)
-            
-                mask = (
-                    (ai_summary['persona'].str.lower() == persona.lower())
-                    & (ai_summary['neighbourhood_cleansed'].str.lower() == neighbourhood.lower())
-                    & (ai_summary['output_type'].str.lower() == 'area_overview')
-                )
-            
-                matches = ai_summary.loc[mask, 'ai_narrative']
-            
-                if not matches.empty:
-                    narrative_dict = json.loads(matches.iloc[0])
-                    investment_summary = narrative_dict.get('investment_summary', 'No investment summary available.')
-                    key_strengths = narrative_dict.get('key_strengths')
-                    key_risks = narrative_dict.get('key_risks')
-                    confidence = narrative_dict.get('confidence')
-                    recommended_action = narrative_dict.get('recommended_action')
-                    st.write(investment_summary)
-                    
-                    st.caption(f"**Key Strengths**")
-                    st.write(f"- {key_strengths[0]}")
-                    st.write(f"- {key_strengths[1]}")
-                    st.write(f"- {key_strengths[2]}")
-                    
-                    st.caption(f"**Key Risks**")
-                    st.write(f"- {key_risks[0]}")
-                    st.write(f"- {key_risks[1]}")
-
-                    st.caption(f"**Recommended Action**")
-                    st.write(recommended_action)
-                else:
-                    st.warning('No AI summary found for this persona/neighbourhood combination.')
+            st.warning('No AI summary found for this persona/neighbourhood combination.')
 
