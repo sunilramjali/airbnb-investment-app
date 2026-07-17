@@ -118,8 +118,7 @@ if 'starred_neighbourhoods' not in st.session_state:
 if 'selected_neighbourhood' not in st.session_state:
     st.session_state['selected_neighbourhood'] = None
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 
 
