@@ -199,3 +199,64 @@ Code-Point Open is published under the
 [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
 Contains OS data © Crown copyright and database right. Attribute **Ordnance Survey** in any
 published analysis or dashboard built on this data.
+
+---
+
+## Source: ONS Price Index of Private Rents (PIPR)
+
+Long-term (traditional let) market rents come from the **Office for National Statistics'
+[Price Index of Private Rents, UK: monthly price statistics](https://www.ons.gov.uk/economy/inflationandpriceindices/datasets/priceindexofprivaterentsukmonthlypricestatistics)** —
+official monthly average rents and rent indices by local authority, broken down by bedroom count
+and property type.
+
+A monthly AWS Lambda (`ons_pipr`) resolves the **latest** release from the ONS dataset's `/data`
+JSON (filenames change every month, so nothing is hard-coded), downloads the workbook, and lands
+the **raw `.xlsx` unchanged** in S3. The Lambda uses only the Python standard library + `boto3`
+(no third-party packages), because the parsing is done **inside Snowflake** — `.xlsx` is not
+`COPY`-loadable, so a Python stored proc (`openpyxl`, from Snowflake's Anaconda channel) reads it.
+
+### Where it lives
+
+**In S3** (same bucket, read via the existing `AIRBNB_S3_INT` integration):
+
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/ons/private-rents/
+└── pipruk_<YYYYMMDD>.xlsx
+```
+
+**In Snowflake** — the ingestion layer parses the workbook's **`Table 1`** tab (skipping the 2
+title rows; the header is on row 3) and lands it faithfully:
+
+| Source | Bronze table | Notes |
+|---|---|---|
+| `pipruk_<YYYYMMDD>.xlsx` (`Table 1`) | `RAW_ONS_PRIVATE_RENT` | one row per sheet row; cells as an `ARRAY` of TEXT + lineage |
+
+Structural objects (stage + `openpyxl` parse proc) are in
+[`etl/ingestion_layer/07_ons_private_rent_ddl.sql`](../etl/ingestion_layer/07_ons_private_rent_ddl.sql)
+(run once); the table rebuild + `CALL` are in
+[`etl/ingestion_layer/08_ons_private_rent_load.sql`](../etl/ingestion_layer/08_ons_private_rent_load.sql).
+The load is idempotent (table rebuilt + newest file re-parsed each run).
+
+### Silver scope
+
+`SILVER.ONS_PRIVATE_RENT_CLEANED` reshapes the wide workbook into a **tidy-long** panel (one row
+per `period × area × category`, with `category_type` = overall / bedroom / property_type and a
+Flat/House `property_class` bridge), scoped by **area code** to the three investment areas:
+
+| Area | ONS area code(s) |
+|---|---|
+| London (32 boroughs + region roll-up) | `E09%`, `E12000007` |
+| Greater Manchester (10 districts) | `E08000001`–`E08000010` |
+| Bristol | `E06000023` |
+
+`SILVER.NEIGHBOURHOOD_ONS_AREA_MAP` is a crosswalk placing each Airbnb neighbourhood onto its ONS
+area (London boroughs match 1:1; Manchester wards → Manchester; Bristol wards → city), with a
+`rent_grain` flag (`exact` / `broadcast`). Downstream, `GOLD.FCT_AREA_RENT` and the strategy marts
+use these observed rents (see the README "Long-term rent" note).
+
+### Licensing / attribution
+
+ONS PIPR is published under the
+[Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+Contains ONS data © Crown copyright and database right. Attribute the **Office for National
+Statistics** in any published analysis or dashboard built on this data.

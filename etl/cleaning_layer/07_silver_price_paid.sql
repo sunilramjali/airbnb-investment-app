@@ -11,6 +11,9 @@
 --   * TRY_CAST numerics/dates; TRIM text; empty -> NULL.
 --   * Decode single-letter code fields into readable labels
 --     (raw code kept alongside the decoded label).
+--   * Derive property_class (Flat/House/NULL) from property_type as the
+--     Flat/House bridge to the Airbnb side (PROPERTY_GROUP_MAP.property_class),
+--     enabling area x property_class aggregation across both sources.
 --   * Restrict to the target counties (all of London, Greater
 --     Manchester, Bristol).
 --   * Validate: drop rows with no transaction id, non-positive
@@ -62,6 +65,19 @@ WITH typed AS (
             WHEN 'F' THEN 'Flat/Maisonette'
             WHEN 'O' THEN 'Other'
         END                          AS property_type,
+
+        -- ---- property_class: Flat / House bridge to Airbnb (PROPERTY_GROUP_MAP.property_class) ----
+        --   Flat  <- Flat/Maisonette (F)
+        --   House <- Detached (D) / Semi-Detached (S) / Terraced (T)
+        --   NULL  <- Other (O): no residential sale comparator (matches Airbnb side).
+        -- Enables area x property_class aggregation across both sources.
+        CASE UPPER(TRIM(PROPERTY_TYPE))
+            WHEN 'F' THEN 'Flat'
+            WHEN 'D' THEN 'House'
+            WHEN 'S' THEN 'House'
+            WHEN 'T' THEN 'House'
+            ELSE NULL
+        END                          AS property_class,
 
         UPPER(TRIM(OLD_NEW))         AS old_new_code,
         CASE UPPER(TRIM(OLD_NEW))

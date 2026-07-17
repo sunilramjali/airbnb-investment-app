@@ -20,6 +20,10 @@
 #   8) 08_silver_poi.sql                 -> SILVER.POI_CLEANED.
 #   9) 09_silver_code_point.sql          -> SILVER.CODE_POINT_CLEANED.
 #  10) 10_silver_property_group_map.sql  -> SILVER.PROPERTY_GROUP_MAP.
+#  11) 11_silver_amenities.sql           -> SILVER.LISTING_AMENITIES.
+#  12) 12_silver_postcode_neighbourhood_map.sql -> SILVER.POSTCODE_NEIGHBOURHOOD_MAP.
+#  13) 13_silver_ons_private_rent.sql      -> SILVER.ONS_PRIVATE_RENT_CLEANED.
+#  14) 14_silver_neighbourhood_ons_area_map.sql -> SILVER.NEIGHBOURHOOD_ONS_AREA_MAP.
 #
 # Adding another table later = add one (source, target, sql) entry
 # to TRANSFORMS below.
@@ -127,6 +131,57 @@ TRANSFORMS = [
         "target": "SILVER.PROPERTY_GROUP_MAP",
         "sql": SQL_DIR / "10_silver_property_group_map.sql",
         "rows_in_sql": "SELECT COUNT(DISTINCT property_type) FROM SILVER.LISTINGS_CLEANED",
+    },
+    {
+        # Explode the listings amenities JSON array -> one row per (listing, amenity),
+        # classified into a curated AMENITY_GROUP. Reads SILVER.LISTINGS_CLEANED, so it
+        # must run after 02_silver_listings (guaranteed by list order). rows_in override =
+        # total amenity occurrences (the fan-out count) so ROWS_IN matches ROWS_OUT and
+        # ROWS_DROPPED stays a meaningful ~0 (only blank/null amenities dropped).
+        "source": "SILVER.LISTINGS_CLEANED",
+        "target": "SILVER.LISTING_AMENITIES",
+        "sql": SQL_DIR / "11_silver_amenities.sql",
+        "rows_in_sql": "SELECT COUNT(*) FROM SILVER.LISTINGS_CLEANED l, "
+                       "LATERAL FLATTEN(input => TRY_PARSE_JSON(l.AMENITIES)) f",
+    },
+    {
+        # Postcode -> neighbourhood spatial bridge: CODE_POINT postcode centroid
+        # point-in-polygon into NEIGHBOURHOODS_GEO_CLEANED. Reads SILVER.CODE_POINT_CLEANED
+        # (09) and SILVER.NEIGHBOURHOODS_GEO_CLEANED (06), both earlier in this list.
+        # source is labelled CODE_POINT_CLEANED (the postcode-grain input); ROWS_DROPPED
+        # then = postcodes that fell outside every neighbourhood polygon (meaningful).
+        "source": "SILVER.CODE_POINT_CLEANED",
+        "target": "SILVER.POSTCODE_NEIGHBOURHOOD_MAP",
+        "sql": SQL_DIR / "12_silver_postcode_neighbourhood_map.sql",
+    },
+    {
+        # ONS Private Rents workbook (Bronze faithful ARRAY rows) -> typed, tidy-long
+        # rent panel for the target areas. Requires BRONZE.RAW_ONS_PRIVATE_RENT
+        # (ingestion 07/08). The 'Table 1' sheet's 9 breakdowns are UNPIVOTED into
+        # rows, so ROWS_OUT is up to 9x the scoped wide rows. rows_in override =
+        # scoped wide rows x 9 (the theoretical max), so ROWS_DROPPED = null/absent
+        # measure cells that produced no row (meaningful).
+        "source": "BRONZE.RAW_ONS_PRIVATE_RENT",
+        "target": "SILVER.ONS_PRIVATE_RENT_CLEANED",
+        "sql": SQL_DIR / "13_silver_ons_private_rent.sql",
+        "rows_in_sql": "SELECT COUNT(*) * 9 FROM BRONZE.RAW_ONS_PRIVATE_RENT "
+                       "WHERE _FILE_ROW_NUMBER >= 4 AND ("
+                       "TRIM(CELLS[1]::STRING) = 'E06000023' "
+                       "OR TRIM(CELLS[1]::STRING) BETWEEN 'E08000001' AND 'E08000010' "
+                       "OR TRIM(CELLS[1]::STRING) LIKE 'E09%' "
+                       "OR TRIM(CELLS[1]::STRING) = 'E12000007')",
+    },
+    {
+        # Neighbourhood -> ONS area crosswalk. Reads SILVER.NEIGHBOURHOODS_GEO_CLEANED
+        # (06) for the neighbourhood+city set and SILVER.ONS_PRIVATE_RENT_CLEANED (13,
+        # above) for the ONS area codes — both earlier in this list. One row per
+        # neighbourhood, so rows_in override = distinct neighbourhoods and
+        # ROWS_DROPPED stays a meaningful 0 (City of London resolves to a NULL ONS
+        # code but is still emitted, so it is not "dropped").
+        "source": "SILVER.NEIGHBOURHOODS_GEO_CLEANED",
+        "target": "SILVER.NEIGHBOURHOOD_ONS_AREA_MAP",
+        "sql": SQL_DIR / "14_silver_neighbourhood_ons_area_map.sql",
+        "rows_in_sql": "SELECT COUNT(DISTINCT NEIGHBOURHOOD) FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED",
     },
 ]
 

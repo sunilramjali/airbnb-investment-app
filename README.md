@@ -1,6 +1,23 @@
-This is a guide for this project. Read the `docs/` files for more detailed information.
+# UK Airbnb Investment App
 
-For the big-picture pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
+A Snowflake-native data application that helps property investors compare **short-term
+(Airbnb) vs long-term (buy-to-let) returns** across **London, Greater Manchester, and
+Bristol** — by neighbourhood, property type, and bedroom count.
+
+It blends five public datasets in a Bronze → Silver → Gold (medallion) pipeline:
+
+- **Inside Airbnb** — listings, calendar, reviews (short-term revenue & occupancy)
+- **HM Land Registry Price Paid** — residential sale prices (purchase cost)
+- **ONS Price Index of Private Rents** — observed long-term market rents
+- **Overture Places** — points of interest / amenities
+- **OS Code-Point Open** — postcode → neighbourhood geography
+
+The gold layer serves denormalised marts the app reads directly — area overviews, per-listing
+comparisons, and short-term-vs-long-term **gross-yield** strategy screens — all computed in
+Snowflake with no query-time joins.
+
+This file is the project guide; read the `docs/` files for more detail. For the big-picture
+pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
 
 ----------------------------------------------------------
 
@@ -70,13 +87,15 @@ independent source that lands in the same `BRONZE` schema (see its section below
 | 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
 | 7 | Load Overture Places POIs into Bronze | `etl/ingestion_layer/05_overture_poi_load.sql` | every load |
 | 8 | Load OS Code-Point postcodes into Bronze | `etl/ingestion_layer/06_code_point_load.sql` | every load |
+| 9 | Create ONS rent stage + xlsx parse proc | `etl/ingestion_layer/07_ons_private_rent_ddl.sql` | once |
+| 10 | Load ONS private rents into Bronze | `etl/ingestion_layer/08_ons_private_rent_load.sql` | every load |
 
 Once Bronze is loaded, build the upper layers:
 
 | # | Step | File | When |
 |---|------|------|------|
-| 9 | Build Silver (`*_CLEANED` tables) | `etl/cleaning_layer/cleaning_layer.py` | every build |
-| 10 | Build Gold (star + app marts) | `etl/aggregation_layer/aggregation_layer.py` | every build |
+| 11 | Build Silver (`*_CLEANED` tables) | `etl/cleaning_layer/cleaning_layer.py` | every build |
+| 12 | Build Gold (star + app marts) | `etl/aggregation_layer/aggregation_layer.py` | every build |
 
 Current project database and warehouses:
 
@@ -206,9 +225,10 @@ Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
 It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
 
 1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
-2. `02_silver_listings.sql` → `10_silver_property_group_map.sql` — one cleaning transform
+2. `02_silver_listings.sql` → `14_silver_neighbourhood_ons_area_map.sql` — one cleaning transform
    each (listings, calendar, reviews, neighbourhoods, neighbourhoods-geo, price-paid, POI,
-   code-point, property-group map).
+   code-point, property-group map, amenities, postcode→neighbourhood map, ONS private rents,
+   neighbourhood→ONS-area crosswalk).
 
 ### What it produces
 
@@ -223,6 +243,10 @@ AIRBNB_INVESTMENT_DB.SILVER
 ├── POI_CLEANED                  # from BRONZE.RAW_OVERTURE_POI (investment-relevant amenities + GEOGRAPHY)
 ├── CODE_POINT_CLEANED           # from BRONZE.RAW_CODE_POINT (postcodes -> normalized POSTCODE_KEY)
 ├── PROPERTY_GROUP_MAP           # property_type -> property_group lookup
+├── LISTING_AMENITIES            # from BRONZE.RAW_LISTINGS (exploded listing × amenity, classified)
+├── POSTCODE_NEIGHBOURHOOD_MAP   # postcode -> neighbourhood spatial bridge (point-in-polygon)
+├── ONS_PRIVATE_RENT_CLEANED     # from BRONZE.RAW_ONS_PRIVATE_RENT (tidy-long rent panel; London/Manchester/Bristol)
+├── NEIGHBOURHOOD_ONS_AREA_MAP   # neighbourhood -> ONS area crosswalk (exact/broadcast rent_grain)
 └── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
 
@@ -283,6 +307,8 @@ directly. It lives in `etl/aggregation_layer/` and is driven by a single Python 
    ALTER TABLE SILVER.CALENDAR_CLEANED           SET CHANGE_TRACKING = TRUE;
    ALTER TABLE SILVER.POI_CLEANED                SET CHANGE_TRACKING = TRUE;
    ALTER TABLE SILVER.NEIGHBOURHOODS_GEO_CLEANED SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.ONS_PRIVATE_RENT_CLEANED   SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.NEIGHBOURHOOD_ONS_AREA_MAP SET CHANGE_TRACKING = TRUE;
    ```
 
 ### How to run
@@ -309,11 +335,15 @@ AIRBNB_INVESTMENT_DB.GOLD
 ├── FCT_LISTING_SNAPSHOT   # per-listing investment metrics (ADR, occupancy, revenue, RevPAR)
 ├── FCT_CALENDAR_DAILY     # daily availability per listing (listing × date)
 ├── FCT_LISTING_POI        # POI proximity counts per listing (500m)
+├── FCT_AREA_SALE_PRICE    # median/avg sale price per neighbourhood × structure_class (HM Land Registry)
+├── FCT_AREA_RENT          # observed ONS rent per neighbourhood × category (overall/structure/bedroom)
 │
 ├── MART_LISTING_CANDIDATES # APP: denormalised per-listing (detail + comparison screens)
 ├── MART_AREA_OVERVIEW      # APP: per-neighbourhood summary + map boundary (area overview)
 ├── MART_PROPERTY_GROUP     # APP: neighbourhood × property group (+ median sale-price cost)
-└── MART_AREA_POI           # APP: per-POI map markers inside each neighbourhood
+├── MART_AREA_POI           # APP: per-POI map markers inside each neighbourhood
+├── MART_AREA_STRATEGY      # APP: ST (Airbnb) vs LT (let) gross-yield per neighbourhood × structure_class
+└── MART_AREA_STRATEGY_BEDROOMS # APP: the same ST-vs-LT comparison, faceted by bedroom bucket
 ```
 
 ### How the app consumes it
@@ -327,13 +357,21 @@ query-time joins** — the marts are already denormalised, one per screen:
 | Area Overview (stats + map) | `MART_AREA_OVERVIEW` + `MART_AREA_POI` (map markers) |
 | Property selection (per group + cost) | `MART_PROPERTY_GROUP` |
 | Listing Comparison | `MART_LISTING_CANDIDATES` |
+| Area Strategy (ST vs LT yield, incl. by bedroom) | `MART_AREA_STRATEGY` + `MART_AREA_STRATEGY_BEDROOMS` |
 
-Two usage notes:
+Three usage notes:
 - **`HAS_REVENUE_DATA`** — 34% of listings have no `price`/revenue in the source scrape.
   Filter `WHERE HAS_REVENUE_DATA = TRUE` for any revenue-ranked view; the flag keeps the
   rest visible without fabricating numbers.
 - **Cost benchmark** — `AREA_MEDIAN_SALE_PRICE` (listing) and `MEDIAN_SALE_PRICE` (area)
   come from HM Land Registry, matched by neighbourhood × Flat/House.
+- **Long-term rent (ONS)** — `MART_AREA_STRATEGY(_BEDROOMS)` now compare short-term (Airbnb)
+  vs long-term (let) **gross yield** using *observed* ONS rents (`GOLD.FCT_AREA_RENT`), not a
+  flat per-city assumption. `LT_GROSS_YIELD_PCT = ONS annual rent / median sale price`, and
+  `LT_RENT_SOURCE` flags each row `observed` or `assumed` (the per-city assumption is the
+  documented fallback where ONS has no figure — e.g. City of London, or Studio/Unknown bedroom
+  buckets). ONS is local-authority grain, so `FCT_AREA_RENT.RENT_GRAIN` marks whether a rent is
+  `exact` (London borough / GM district) or `broadcast` (shared across Manchester/Bristol wards).
 
 ### Refresh model
 
