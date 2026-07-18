@@ -5,8 +5,7 @@ import json
 from snowflake.snowpark.functions import st_x, st_y
 #st.write("Checking 1 2 3")
 
-#CUSTOM CSS FOR PAGE DESIGN GOES HERE
-
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
     <style>
@@ -123,6 +122,27 @@ st.markdown(
         white-space: pre-line !important;
         text-align: center !important;
         line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
     }
     </style>
     """,
@@ -348,7 +368,7 @@ with map_col1:
         stroked=True,
         filled=True,
         extruded=False,
-        get_fill_color="[properties.is_top_three ? 0 : 255, properties.is_top_three ? 200 : 250, properties.is_top_three ? 80 : 120, 240]",
+        get_fill_color="[properties.is_top_three ? 242 : 248, properties.is_top_three ? 99 : 217, properties.is_top_three ? 89 : 211, 240]",
         get_line_color=[0, 0, 0],
         get_line_width=100,
         pickable=True,
@@ -465,7 +485,7 @@ with map_col2:
     #GENERATE ANALYSIS BUTTON GOES HERE
     
     if len(st.session_state['starred_neighbourhoods']) == 3:
-        if st.button('Continue to Property Types'):
+        if st.button('Continue to Property Types', use_container_width=True):
             st.switch_page('pages/2_property_types.py')
     else:
         st.button('Continue to Property Types', disabled = True)

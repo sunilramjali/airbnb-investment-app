@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
     <style>
@@ -10,9 +11,35 @@ st.markdown(
         background-color: white !important;
     }
 
+    [data-testid="stBottomBlockContainer"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
     /* Sidebar */
     section[data-testid="stSidebar"] {
         background-color: white !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
     }
 
     /* Big headings */
@@ -33,7 +60,7 @@ st.markdown(
 
     /* Captions */
     [data-testid="stCaptionContainer"] {
-        color: #f26359 !important;
+        color: #000000 !important;
     }
 
     div[data-testid="stAlert"] {
@@ -92,6 +119,27 @@ st.markdown(
         white-space: pre-line !important;
         text-align: center !important;
         line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
     }
     </style>
     """,
