@@ -389,19 +389,43 @@ GROUP BY d.NEIGHBOURHOOD, n.CITY, MONTH(c.CALENDAR_DATE);
 CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_STRATEGY
     TARGET_LAG = '1 day'
     WAREHOUSE  = AIRBNB_APP_WH
-    COMMENT    = 'App-ready ST (Airbnb) vs LT (let) yield comparison per neighbourhood x structure_class (Flat/House/Other). Purchase price normalised per area x structure; yields only for Flat/House (YIELD_COMPARABLE), Other is price context only. All figures gross.'
+    COMMENT    = 'App-ready ST (Airbnb) vs LT (let) yield comparison per neighbourhood x structure_class (Flat/House only). ST revenue basis = active (>=30 booked nights), entire-home listings, capped at the city short-let night limit (London 90). Purchase price normalised per area x structure; all figures gross.'
 AS
 WITH
--- Short-term (Airbnb) income per area x structure_class, from the fact.
+-- Per-city legal cap on short-let nights (entire-home planning rule).
+-- London = 90 nights/yr (deemed planning permission limit); other cities uncapped (365).
+occ_cap AS (
+    SELECT column1 AS CITY, column2 AS CAP_NIGHTS
+    FROM VALUES
+        ('London',             90),
+        ('Greater Manchester', 365),
+        ('Bristol',            365)
+),
+-- Short-term (Airbnb) income per area x structure_class.
+-- BASIS (like-for-like with the whole-dwelling sale price & LT rent):
+--   * Flat/House only (purchasable dwellings; 'Other'/guest-accommodation dropped).
+--   * Entire home/apt only (whole property, not single-room lets).
+--   * Active listings only (>=30 booked nights) to exclude the dormant tail
+--     that otherwise depresses the median ~4x.
+--   * Revenue capped at the city short-let night limit:
+--       ADR x LEAST(booked_nights, CAP_NIGHTS).
 area_rev AS (
     SELECT
-        NEIGHBOURHOOD,
-        COALESCE(STRUCTURE_CLASS, 'Other') AS STRUCTURE_CLASS,
-        COUNT(*)                           AS LISTING_COUNT,
-        MEDIAN(ANNUAL_REVENUE)             AS MEDIAN_ST_ANNUAL_REVENUE
-    FROM GOLD.FCT_LISTING_SNAPSHOT
-    WHERE ANNUAL_REVENUE IS NOT NULL
-    GROUP BY NEIGHBOURHOOD, COALESCE(STRUCTURE_CLASS, 'Other')
+        f.NEIGHBOURHOOD,
+        f.STRUCTURE_CLASS,
+        COALESCE(cap.CAP_NIGHTS, 365)                                               AS OCCUPANCY_CAP_NIGHTS,
+        COUNT(*)                                                                    AS LISTING_COUNT,
+        MEDIAN(f.ADR * LEAST(f.OCCUPANCY_NIGHTS, COALESCE(cap.CAP_NIGHTS, 365)))     AS MEDIAN_ST_ANNUAL_REVENUE
+    FROM GOLD.FCT_LISTING_SNAPSHOT f
+    JOIN GOLD.DIM_NEIGHBOURHOOD n
+        ON n.NEIGHBOURHOOD = f.NEIGHBOURHOOD
+    LEFT JOIN occ_cap cap
+        ON cap.CITY = n.CITY
+    WHERE f.STRUCTURE_CLASS IN ('Flat', 'House')   -- purchasable dwellings only (drop Other)
+      AND f.ROOM_TYPE = 'Entire home/apt'          -- whole property, like-for-like with sale price & LT rent
+      AND f.OCCUPANCY_NIGHTS >= 30                 -- active listings only (exclude dormant tail)
+      AND f.ADR IS NOT NULL
+    GROUP BY f.NEIGHBOURHOOD, f.STRUCTURE_CLASS, COALESCE(cap.CAP_NIGHTS, 365)
 ),
 -- Per-city assumed long-term GROSS rental yield (documented assumption).
 lt_yield AS (
@@ -417,8 +441,9 @@ SELECT
     ar.STRUCTURE_CLASS,
     (ar.STRUCTURE_CLASS IN ('Flat', 'House'))                                    AS YIELD_COMPARABLE,
     ar.LISTING_COUNT,
+    ar.OCCUPANCY_CAP_NIGHTS,
     c.MEDIAN_SALE_PRICE                                                          AS MEDIAN_SALE_PRICE,
-    -- ---- Short-term (Airbnb) ----
+    -- ---- Short-term (Airbnb): active + entire-home, capped at city night limit ----
     ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE, 2)                                        AS ST_ANNUAL_REVENUE,
     CASE WHEN ar.STRUCTURE_CLASS IN ('Flat', 'House')
          THEN ROUND(ar.MEDIAN_ST_ANNUAL_REVENUE / NULLIF(c.MEDIAN_SALE_PRICE, 0) * 100, 2) END AS ST_GROSS_YIELD_PCT,
@@ -475,11 +500,21 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_STRATEGY_BEDROOMS
     COMMENT    = 'App-ready ST-vs-LT yield comparison per neighbourhood x structure_class x bedroom bucket. ST annual revenue is bedroom-specific; purchase price is per area x structure (shared across bedroom buckets); yields only for Flat/House. All figures gross.'
 AS
 WITH
+-- Per-city legal cap on short-let nights (entire-home planning rule); London 90, else uncapped.
+occ_cap AS (
+    SELECT column1 AS CITY, column2 AS CAP_NIGHTS
+    FROM VALUES
+        ('London',             90),
+        ('Greater Manchester', 365),
+        ('Bristol',            365)
+),
 -- Short-term (Airbnb) income per area x structure_class x bedroom bucket.
+-- Same like-for-like basis as MART_AREA_STRATEGY: Flat/House only, entire-home only,
+-- active (>=30 booked nights) only, revenue capped at the city short-let night limit.
 seg_rev AS (
     SELECT
         f.NEIGHBOURHOOD,
-        COALESCE(f.STRUCTURE_CLASS, 'Other')                    AS STRUCTURE_CLASS,
+        f.STRUCTURE_CLASS                                       AS STRUCTURE_CLASS,
         CASE
             WHEN d.BEDROOMS IS NULL THEN 'Unknown'
             WHEN d.BEDROOMS = 0      THEN 'Studio'
@@ -491,12 +526,19 @@ seg_rev AS (
             ELSE LEAST(d.BEDROOMS, 5)
         END                                                     AS BEDROOM_SORT,
         COUNT(*)                    AS LISTING_COUNT,
-        MEDIAN(f.ANNUAL_REVENUE)    AS MEDIAN_ST_ANNUAL_REVENUE
+        MEDIAN(f.ADR * LEAST(f.OCCUPANCY_NIGHTS, COALESCE(cap.CAP_NIGHTS, 365))) AS MEDIAN_ST_ANNUAL_REVENUE
     FROM GOLD.FCT_LISTING_SNAPSHOT f
     JOIN GOLD.DIM_LISTING d
         ON f.LISTING_ID = d.LISTING_ID
-    WHERE f.ANNUAL_REVENUE IS NOT NULL
-    GROUP BY f.NEIGHBOURHOOD, COALESCE(f.STRUCTURE_CLASS, 'Other'), BEDROOM_BUCKET, BEDROOM_SORT
+    JOIN GOLD.DIM_NEIGHBOURHOOD n
+        ON n.NEIGHBOURHOOD = f.NEIGHBOURHOOD
+    LEFT JOIN occ_cap cap
+        ON cap.CITY = n.CITY
+    WHERE f.STRUCTURE_CLASS IN ('Flat', 'House')   -- purchasable dwellings only (drop Other)
+      AND f.ROOM_TYPE = 'Entire home/apt'          -- whole property, like-for-like
+      AND f.OCCUPANCY_NIGHTS >= 30                 -- active listings only
+      AND f.ADR IS NOT NULL
+    GROUP BY f.NEIGHBOURHOOD, f.STRUCTURE_CLASS, BEDROOM_BUCKET, BEDROOM_SORT
 ),
 lt_yield AS (
     SELECT column1 AS CITY, column2 AS ASSUMED_LT_GROSS_YIELD_PCT
@@ -788,12 +830,13 @@ COMMENT ON COLUMN GOLD.MART_AREA_SEASONAL.OCCUPANCY_RATE IS 'BOOKED_NIGHTS / TOT
 -- ---- MART_AREA_STRATEGY ----
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.NEIGHBOURHOOD IS 'Area name.';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.CITY IS 'City of the neighbourhood.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.STRUCTURE_CLASS IS 'Flat / House / Other property-type bucket.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.YIELD_COMPARABLE IS 'TRUE for Flat/House where ST vs LT yields are like-for-like; FALSE for Other.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LISTING_COUNT IS 'Active listings in the area x structure.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.MEDIAN_SALE_PRICE IS 'Land Registry median purchase price for the area x structure.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_ANNUAL_REVENUE IS 'Median short-term (Airbnb) annual revenue.';
-COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent = ST revenue / sale price (NULL for Other).';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.STRUCTURE_CLASS IS 'Flat / House property-type bucket (purchasable dwellings only; Other excluded).';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.YIELD_COMPARABLE IS 'TRUE for all rows (Flat/House); retained for schema stability.';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LISTING_COUNT IS 'Active (>=30 booked nights) entire-home listings behind the ST revenue for the area x structure.';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.OCCUPANCY_CAP_NIGHTS IS 'City short-let night cap applied to ST revenue (London 90, other cities 365 = uncapped).';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.MEDIAN_SALE_PRICE IS 'Land Registry median purchase price for the area x structure.';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_ANNUAL_REVENUE IS 'Median short-term (Airbnb) annual revenue: ADR x LEAST(booked_nights, city cap), over active entire-home Flat/House listings.';
+    COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ST_GROSS_YIELD_PCT IS 'Short-term gross yield percent = ST revenue / sale price.';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.ASSUMED_LT_GROSS_YIELD_PCT IS 'Per-city assumed long-term gross yield percent (documented assumption).';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_ANNUAL_RENT IS 'Long-term annual rent: observed ONS PIPR rent x 12 where available, else modelled (sale price x assumed yield). See LT_RENT_SOURCE.';
 COMMENT ON COLUMN GOLD.MART_AREA_STRATEGY.LT_GROSS_YIELD_PCT IS 'Long-term gross yield percent = LT_ANNUAL_RENT / median sale price (NULL for Other). Real when LT_RENT_SOURCE=observed.';

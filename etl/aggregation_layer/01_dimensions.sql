@@ -49,15 +49,12 @@ SELECT
     l.NAME,
     l.ROOM_TYPE,
     l.PROPERTY_TYPE,
-    -- Flat vs House: match building-type keywords in PROPERTY_TYPE.
-    CASE
-        WHEN l.PROPERTY_TYPE ILIKE ANY ('%rental unit%','%condo%','%apartment%','%loft%','%aparthotel%')
-            THEN 'Flat'
-        WHEN l.PROPERTY_TYPE ILIKE ANY ('%home%','%townhouse%','%house%','%cottage%','%villa%',
-                                        '%bungalow%','%cabin%','%guesthouse%','%guest suite%','%vacation%')
-            THEN 'House'
-        ELSE NULL   -- hotel/hostel/boat/tiny home/etc.: excluded from yield
-    END                                                    AS STRUCTURE_CLASS,
+    -- Flat vs House: single source of truth = SILVER.PROPERTY_GROUP_MAP.property_class,
+    -- the same whitelist that bridges listings to HM Land Registry sale prices
+    -- (07_silver_price_paid.sql). Keeping STRUCTURE_CLASS = property_class guarantees the
+    -- Airbnb (ST) side and the sale-price/LT side never disagree. NULL = no purchasable
+    -- dwelling comparator (hotels/guest accommodation/unique stays/etc.) -> excluded from yield.
+    pg.PROPERTY_CLASS                                      AS STRUCTURE_CLASS,
     pg.PROPERTY_GROUP,
     l.ACCOMMODATES,
     l.BEDROOMS,
