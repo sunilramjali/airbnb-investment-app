@@ -1,0 +1,7 @@
+streamlit>=1.39
+snowflake-snowpark-python>=1.24
+pandas
+pydeck
+altair
+cryptography
+google-generativeai>=0.8

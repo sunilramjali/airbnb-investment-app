@@ -1,0 +1,19 @@
+definition_version: 2
+entities:
+  streamlit_app:
+    type: streamlit
+    identifier:
+      database: AIRBNB_INVESTMENT_DB
+      schema: GOLD
+      name: AIRBNB_APP
+    title: airbnb-app
+    query_warehouse: AIRBNB_APP_WH
+    compute_pool: SYSTEM_COMPUTE_POOL_CPU
+    run_mode: SpcsOnly
+    execute_as: OWNER
+    main_file: landing.py
+    artifacts:
+      - pyproject.toml
+      - landing.py
+      - .streamlit/config.toml
+      - pages/
