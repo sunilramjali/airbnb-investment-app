@@ -1,3 +1,5 @@
+-- Builds SILVER.PROPERTY_GROUP_MAP mapping property_type to property_group and a Flat/House property_class (sale-price bridge).
+-- Co-authored with CoCo
 -- Builds SILVER.PROPERTY_GROUP_MAP: lookup mapping each cleaned property_type to a
 -- higher-level property_group category, plus a coarser property_class.
 --
@@ -47,13 +49,17 @@ SELECT
     CASE
         WHEN property_type IN (
             'rental unit', 'condo', 'serviced apartment', 'aparthotel',
-            'loft', 'guest suite', 'floor', 'home/apt'
+            'loft', 'floor', 'home/apt'
         ) THEN 'Flat'
         WHEN property_type IN (
             'home', 'townhouse', 'bungalow', 'villa', 'cottage', 'cabin', 'chalet',
-            'vacation home', 'guesthouse', 'bed and breakfast'
+            'vacation home'
         ) THEN 'House'
-        ELSE NULL   -- no residential sale comparator (hotels, unique stays, outdoor, ambiguous)
+        ELSE NULL   -- no residential sale comparator (hotels, guest accommodation,
+                    -- unique stays, outdoor, ambiguous). NOTE: guest suite / guesthouse /
+                    -- bed and breakfast are NOT purchasable dwellings -> NULL (excluded
+                    -- from the buy-vs-Airbnb yield comparison), though they remain grouped
+                    -- as 'Guest Accommodation' in property_group above.
     END AS property_class
 FROM (
     SELECT DISTINCT property_type
