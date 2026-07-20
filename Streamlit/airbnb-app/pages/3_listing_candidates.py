@@ -11,8 +11,54 @@ st.markdown(
         background-color: white !important;
     }
 
-    [data-testid="stBottomBlockContainer"] {
+    [data-testid="stFullScreenFrame"] {
         background-color: white !important;
+    }
+
+    [data-testid="stBottom"],
+    [data-testid="stBottom"] > div,
+    [data-testid="stBottomBlockContainer"] {
+        left: 0px !important;
+        right: auto !important;
+        width: 62% !important;
+        max-width: 950px !important;
+        min-width: 500px !important;
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        transform: none !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        border-top: none !important;
+        pointer-events: none !important;
+        bottom: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] > div {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        max-width: 950px !important;
+        background-color: white !important;
+        border: 1px solid #f26359 !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        pointer-events: auto !important;
+        max-height: 42vh !important;
+        overflow-y: auto !important;
+    }
+    [data-testid="stBottomBlockContainer"] [data-testid="stVerticalBlock"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] [data-testid="stElementContainer"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
     }
 
     [data-testid="stExpander"] summary {
@@ -28,8 +74,17 @@ st.markdown(
     }
 
     /* Sidebar */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
     section[data-testid="stSidebar"] {
         background-color: white !important;
+        display: none !important;
     }
 
     [data-testid="stSelectbox"] input {
@@ -141,12 +196,64 @@ st.markdown(
         color: white !important;
         border: 2px solid #F4EFEB !important;
     }
+
+     /* Multiselect outer box */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Text typed inside the multiselect */
+    [data-testid="stMultiSelect"] input {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Placeholder text */
+    [data-testid="stMultiSelect"] input::placeholder {
+        color: #7A2E2A !important;
+        opacity: 1 !important;
+    }
+
+    /* Selected option boxes / tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #f26359 !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+    }
+
+    /* Text inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
+
+    /* Remove icon inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    /* Dropdown menu background */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+    }
+
+    /* Dropdown options */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Dropdown option hover */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #f8d9d3 !important;
+        color: #000000 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, page_col_3, empty_col = st.columns([1,1,1,5])
+page_col1, page_col2, page_col3, empty_col, page_col4 = st.columns([1,1,1,4,1])
 with page_col1:
     if st.button('Landing', use_container_width = True):
         st.switch_page('landing.py')
@@ -155,10 +262,13 @@ with page_col2:
     if st.button('Area Overview', use_container_width = True):
         st.switch_page('pages/1_area_overview.py')
 
-with page_col_3:
+with page_col3:
     if st.button('Property Types', use_container_width = True):
         st.switch_page('pages/2_property_types.py')
 
+with page_col4:
+    if st.button('Documentation', use_container_width = True):
+        st.switch_page('pages/4_Documentation.py')
 
 if "selected_listing_property_group" not in st.session_state:
     st.session_state["selected_listing_property_group"] = None
