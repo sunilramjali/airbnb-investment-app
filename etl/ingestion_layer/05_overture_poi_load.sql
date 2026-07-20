@@ -20,8 +20,9 @@
 -- PREREQUISITES:
 --   1) The OVERTURE_MAPS__PLACES Marketplace share is acquired (Get Data;
 --      terms accepted) and mounted under that database name.
---   2) SILVER.NEIGHBOURHOODS_GEO_CLEANED exists (borough polygons) — it
---      defines the spatial coverage filter below.
+--   2) BRONZE.RAW_NEIGHBOURHOODS_GEO exists (raw GeoJSON FeatureCollections,
+--      one row per city) — its per-feature borough polygons define the
+--      spatial coverage filter below.
 -- ============================================================
 
 USE DATABASE AIRBNB_INVESTMENT_DB;
@@ -45,13 +46,20 @@ USE SCHEMA BRONZE;
 --        this is just a safety de-dup).
 ---------------------------------------------
 CREATE OR REPLACE TABLE BRONZE.RAW_OVERTURE_POI AS
-WITH bbox AS (   -- overall lon/lat envelope across every borough polygon
+WITH boroughs AS (  -- borough polygons parsed from the raw GeoJSON FeatureCollections
+    SELECT
+        f.value:properties:neighbourhood::STRING  AS NEIGHBOURHOOD,
+        TO_GEOGRAPHY(f.value:geometry)            AS BOUNDARY
+    FROM BRONZE.RAW_NEIGHBOURHOODS_GEO t,
+         LATERAL FLATTEN(input => t.RAW:features) f
+),
+bbox AS (   -- overall lon/lat envelope across every borough polygon
     SELECT
         MIN(ST_XMIN(BOUNDARY)) AS lon_min,
         MAX(ST_XMAX(BOUNDARY)) AS lon_max,
         MIN(ST_YMIN(BOUNDARY)) AS lat_min,
         MAX(ST_YMAX(BOUNDARY)) AS lat_max
-    FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED
+    FROM boroughs
 ),
 candidates AS (  -- 1) cheap numeric bbox prefilter on the point's lon/lat
     SELECT p.*
@@ -71,7 +79,7 @@ SELECT
     'OVERTURE_MAPS__PLACES.CARTO.PLACE'  AS _SOURCE,   -- lineage: originating share object
     CURRENT_TIMESTAMP()::TIMESTAMP_NTZ   AS _LOAD_TS   -- lineage: load timestamp
 FROM candidates c
-JOIN SILVER.NEIGHBOURHOODS_GEO_CLEANED n     -- 2) exact point-in-borough (per-polygon)
+JOIN boroughs n     -- 2) exact point-in-borough (per-polygon)
     ON ST_WITHIN(c.GEOMETRY, n.BOUNDARY)
 QUALIFY ROW_NUMBER() OVER (PARTITION BY c.ID ORDER BY n.NEIGHBOURHOOD) = 1;
 
