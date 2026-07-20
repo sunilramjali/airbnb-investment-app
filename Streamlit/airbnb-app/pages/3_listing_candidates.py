@@ -2,24 +2,144 @@ import streamlit as st
 import pandas as pd
 from db import get_session
 
-#CUSTOM CSS FOR PAGE DESIGN GOES HERE
-
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
     <style>
-    div.stButton > button {
-        width: 100%;
-        height: 90px;
-        font-size: 20px;
-        font-weight: 600;
-        border-radius: 14px;
-        white-space: pre-line;
+    /* Main app */
+    .stApp {
+        background-color: white !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Big headings */
+    h1, h2 {
+        color: #f26359 !important;
+    }
+
+    /* Smaller headings */
+    h3, h4, h5, h6 {
+        color: #000000 !important;
+    }
+
+    /* Normal markdown text */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #000000 !important;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background-color: #FCEDEA !important;
+        color: #7A2E2A !important;
+        border: 1px solid #F26359 !important;
+        border-left: 6px solid #F26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] div {
+        color: #7A2E2A !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
+
+    /* Buttons */
+    div.stButton > button[kind="secondary"] {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #f8d9d3 !important;
+        border: 2px solid #f26359 !important;
+        border-radius: 12px !important;
     }
 
     div.stButton > button p {
-        white-space: pre-line;
-        text-align: center;
-        line-height: 1.3;
+        white-space: pre-line !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
     }
     </style>
     """,

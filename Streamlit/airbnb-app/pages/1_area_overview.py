@@ -7,8 +7,7 @@ from db import get_session
 st.set_page_config(layout='wide')
 #st.write("Checking 1 2 3")
 
-#CUSTOM CSS FOR PAGE DESIGN GOES HERE
-
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
     <style>
@@ -21,9 +20,31 @@ st.markdown(
         background-color: white !important;
     }
 
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
     /* Sidebar */
     section[data-testid="stSidebar"] {
         background-color: white !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
     }
 
     /* Big headings */
@@ -103,6 +124,27 @@ st.markdown(
         white-space: pre-line !important;
         text-align: center !important;
         line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
     }
     </style>
     """,
@@ -206,7 +248,7 @@ def find_best_neighbourhoods(index):
 
     row = filtered_neighbourhoods.iloc[index]
 
-    st.header(str(index + 1) + '. ' + row['NEIGHBOURHOOD'])
+    st.header(row['NEIGHBOURHOOD'])
     st.caption(row['CITY'])
 
     st.metric('Investment rank', f"{row['INVESTMENT_RANK']}")
@@ -217,13 +259,34 @@ def find_best_neighbourhoods(index):
     st.metric('Area', f"{row['AREA']:,.2f} sqkm")
 
 with acol1:
-    find_best_neighbourhoods(0)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>1.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(0)
 
 with acol2:
-    find_best_neighbourhoods(1)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>2.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(1)
 
 with acol3:
-    find_best_neighbourhoods(2)
+    num_col, city_col = st.columns([1,7], border=False)
+
+    with num_col:
+        st.markdown("<div style='font-size: 22px; font-weight: 600;'>3.</div>", unsafe_allow_html=True
+)
+
+    with city_col:
+        find_best_neighbourhoods(2)
 
 #Pydeck map ---
 #CALCULATE CENTROIDS FOR THE BOUNDARIES
@@ -304,7 +367,7 @@ with map_col1:
         stroked=True,
         filled=True,
         extruded=False,
-        get_fill_color="[properties.is_top_three ? 0 : 255, properties.is_top_three ? 200 : 140, properties.is_top_three ? 80 : 120, 160]",
+        get_fill_color="[properties.is_top_three ? 242 : 248, properties.is_top_three ? 99 : 217, properties.is_top_three ? 89 : 211, 240]",
         get_line_color=[0, 0, 0],
         get_line_width=100,
         pickable=True,
@@ -356,9 +419,6 @@ with map_col1:
             if len(st.session_state['starred_neighbourhoods']) < 3:
                 st.session_state['starred_neighbourhoods'].append(selected_star)
                 st.rerun()
-            
-            else:
-                st.warning('You can only star 3 neighbourhoods. Unstar one before adding another.')
 
         selected_properties = selected_objects[0]["properties"]
 
@@ -424,7 +484,7 @@ with map_col2:
     #GENERATE ANALYSIS BUTTON GOES HERE
     
     if len(st.session_state['starred_neighbourhoods']) == 3:
-        if st.button('Continue to Property Types'):
+        if st.button('Continue to Property Types', use_container_width=True):
             st.switch_page('pages/2_property_types.py')
     else:
         st.button('Continue to Property Types', disabled = True)
