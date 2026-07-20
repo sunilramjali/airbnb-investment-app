@@ -5,6 +5,12 @@ data/
 .env
 .venv/
 
+# Ignore deploy secrets and keys — never commit these
+deploy_secrets/
+.streamlit/secrets.toml
+*.p8
+*.pem
+
 # Ignore Claude Prompt
 CLAUDE.md
 
@@ -13,3 +19,4 @@ __pycache__/
 
 # Ignore hidden file automatically created by macOS Finder
 .DS_Store
+
