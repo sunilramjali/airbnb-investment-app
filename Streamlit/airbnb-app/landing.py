@@ -1,6 +1,11 @@
 # Import python packages
 import streamlit as st
-import os
+from db import get_session
+
+st.set_page_config(
+    page_title='Landing',
+    page_icon='👋'
+)
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -146,11 +151,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.set_page_config(
-    page_title = 'Landing',
-    page_icon = '👋'
-)
-
 st.title("Airbnb Investment Intelligence")
 st.warning(
     "LONDON 90-DAY RULE: Short-term lets in London are generally limited to 90 nights per calendar year unless planning permission is granted."
@@ -160,8 +160,7 @@ st.write(
   """
 )
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 if "persona" not in st.session_state:
     st.session_state["persona"] = None

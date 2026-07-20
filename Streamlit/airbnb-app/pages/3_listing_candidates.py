@@ -1,6 +1,6 @@
 import streamlit as st
-import os
 import pandas as pd
+from db import get_session
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -182,8 +182,7 @@ st.subheader('Out of your favourite Property types, find the 10 best listings ba
 
 
 #SQL QUERY ---
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 @st.cache_data(ttl=600)
 def load_listings(_session):

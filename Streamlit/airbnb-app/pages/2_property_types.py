@@ -1,9 +1,10 @@
+
 import streamlit as st
-import os
 import pandas as pd
 import json
 import time
 import altair as alt
+from db import get_session
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -181,11 +182,7 @@ def format_percent(value):
         return "N/A"
     return f"{value:,.1f}%"
 
-st.set_page_config(layout="wide")
-
-
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 #AI_COOLDOWN_SECONDS = 60
 

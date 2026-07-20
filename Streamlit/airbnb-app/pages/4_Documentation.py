@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 from snowflake.snowpark.functions import st_x, st_y
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -150,6 +149,8 @@ conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
 session = conn.session()
 
 st.set_page_config(layout='wide')
+
+session = get_session()
 
 # TITLE ---
 
