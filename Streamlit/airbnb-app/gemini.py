@@ -10,7 +10,7 @@ allowed. The key is only ever read from secrets, never hard-coded.
 import streamlit as st
 import google.generativeai as genai
 
-DEFAULT_MODEL = "gemini 3.1 Flash lite"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 
 @st.cache_resource
