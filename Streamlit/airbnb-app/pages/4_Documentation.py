@@ -1,5 +1,6 @@
 import streamlit as st
 from snowflake.snowpark.functions import st_x, st_y
+from db import get_session
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -226,9 +227,6 @@ with page_col3:
 with page_col4:
     if st.button('Listing Candidates', use_container_width = True):
         st.switch_page('pages/3_listing_candidates')
-
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
 
 st.set_page_config(layout='wide')
 

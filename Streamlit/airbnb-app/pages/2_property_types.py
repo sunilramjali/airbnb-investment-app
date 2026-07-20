@@ -4,7 +4,7 @@ import pandas as pd
 import json
 import time
 import altair as alt
-
+from db import get_session
 st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -291,8 +291,7 @@ def format_percent(value):
         return "N/A"
     return f"{value:,.1f}%"
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 #AI_COOLDOWN_SECONDS = 60
 
