@@ -3,6 +3,7 @@ import os
 import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
+from db import get_session
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -217,3 +218,5 @@ page_col1, empty_col = st.columns([1,7])
 with page_col1:
     if st.button('Back to Property Types Overview', use_container_width = True):
         st.switch_page('pages/2_property_types.py')
+
+session = get_session()

@@ -5,6 +5,7 @@ import json
 import altair as alt
 import pandas as pd
 import numpy as np
+from db import get_session
 #import plotly.graph_objects as go
 from snowflake.snowpark.functions import st_x, st_y
 
@@ -234,8 +235,7 @@ if len(starred_neighbourhoods) != 3:
     )
     st.stop()
 
-conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
-session = conn.session()
+session = get_session()
 
 # SQL QUERY FOR SHORT-TERM AND LONG-TERM STRATEGY
 @st.cache_data(ttl=300)
