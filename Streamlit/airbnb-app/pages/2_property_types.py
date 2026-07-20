@@ -4,7 +4,8 @@ import pandas as pd
 import json
 import time
 import altair as alt
-from db import get_session
+
+st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -15,8 +16,54 @@ st.markdown(
         background-color: white !important;
     }
 
-    [data-testid="stBottomBlockContainer"] {
+    [data-testid="stFullScreenFrame"] {
         background-color: white !important;
+    }
+
+    [data-testid="stBottom"],
+    [data-testid="stBottom"] > div,
+    [data-testid="stBottomBlockContainer"] {
+        left: 0px !important;
+        right: auto !important;
+        width: 62% !important;
+        max-width: 950px !important;
+        min-width: 500px !important;
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        transform: none !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        border-top: none !important;
+        pointer-events: none !important;
+        bottom: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] > div {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        max-width: 950px !important;
+        background-color: white !important;
+        border: 1px solid #f26359 !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        pointer-events: auto !important;
+        max-height: 42vh !important;
+        overflow-y: auto !important;
+    }
+    [data-testid="stBottomBlockContainer"] [data-testid="stVerticalBlock"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] [data-testid="stElementContainer"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
     }
 
     [data-testid="stExpander"] summary {
@@ -32,8 +79,17 @@ st.markdown(
     }
 
     /* Sidebar */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
     section[data-testid="stSidebar"] {
         background-color: white !important;
+        display: none !important;
     }
 
     [data-testid="stSelectbox"] input {
@@ -145,12 +201,64 @@ st.markdown(
         color: white !important;
         border: 2px solid #F4EFEB !important;
     }
+
+     /* Multiselect outer box */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Text typed inside the multiselect */
+    [data-testid="stMultiSelect"] input {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Placeholder text */
+    [data-testid="stMultiSelect"] input::placeholder {
+        color: #7A2E2A !important;
+        opacity: 1 !important;
+    }
+
+    /* Selected option boxes / tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #f26359 !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+    }
+
+    /* Text inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
+
+    /* Remove icon inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    /* Dropdown menu background */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+    }
+
+    /* Dropdown options */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Dropdown option hover */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #f8d9d3 !important;
+        color: #000000 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, empty_col = st.columns([1,1,6])
+page_col1, page_col2, empty_col, page_col3 = st.columns([1,1,5,1])
 with page_col1:
     if st.button('Landing', use_container_width = True):
         st.switch_page('landing.py')
@@ -158,31 +266,33 @@ with page_col1:
 with page_col2:
     if st.button('Area Overview', use_container_width = True):
         st.switch_page('pages/1_area_overview.py')
+        
+with page_col3:
+    if st.button('Documentaion', use_container_width = True):
+        st.switch_page('pages/4_Documentation.py')
 
 def format_money(value):
     if pd.isna(value):
         return "N/A"
     return f"£{value:,.0f}"
 
-
 def format_number(value):
     if pd.isna(value):
         return "N/A"
     return f"{value:,.0f}"
-
 
 def format_decimal(value, decimals=2):
     if pd.isna(value):
         return "N/A"
     return f"{value:,.{decimals}f}"
 
-
 def format_percent(value):
     if pd.isna(value):
         return "N/A"
     return f"{value:,.1f}%"
 
-session = get_session()
+conn = st.connection("snowflake", ttl=os.getenv("SNOWFLAKE_CONNECTION_TTL"))
+session = conn.session()
 
 #AI_COOLDOWN_SECONDS = 60
 
@@ -670,12 +780,13 @@ if selected_neighbourhood is not None:
                                         st.session_state["starred_property_types"].remove(item)
                                         st.rerun()
                         
-                        #COMPARISON PAGE BUTTON GOES HERE
-                        
                         if len(st.session_state['starred_property_types']) == 3:
+                            if st.button('Generate Analysis', use_container_width = True):
+                                st.switch_page('pages/2.1_property_types_comparison.py')
                             if st.button('Continue to Listing Candidates', use_container_width = True):
                                 st.switch_page('pages/3_listing_candidates.py')
                         else:
+                            st.button('Generate Analysis', disabled = True)
                             st.button('Continue to Listing Candidates', disabled = True)
                             st.caption('Select exactly 3 Property Types before continuing.')
 #---
