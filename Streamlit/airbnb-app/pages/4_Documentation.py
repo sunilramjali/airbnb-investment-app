@@ -1,7 +1,232 @@
-
 import streamlit as st
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
+
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
+st.markdown(
+    """
+    <style>
+    /* Main app */
+    .stApp {
+        background-color: white !important;
+    }
+
+    [data-testid="stFullScreenFrame"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+     /* Sidebar */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
+    section[data-testid="stSidebar"] {
+        background-color: white !important;
+        display: none !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Big headings */
+    h1, h2 {
+        color: #f26359 !important;
+    }
+
+    /* Smaller headings */
+    h3, h4, h5, h6 {
+        color: #000000 !important;
+    }
+
+    /* Normal markdown text */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #000000 !important;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background-color: #FCEDEA !important;
+        color: #7A2E2A !important;
+        border: 1px solid #F26359 !important;
+        border-left: 6px solid #F26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] div {
+        color: #7A2E2A !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
+
+    /* Buttons */
+    div.stButton > button[kind="secondary"] {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #f8d9d3 !important;
+        border: 2px solid #f26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+     /* Multiselect outer box */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Text typed inside the multiselect */
+    [data-testid="stMultiSelect"] input {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Placeholder text */
+    [data-testid="stMultiSelect"] input::placeholder {
+        color: #7A2E2A !important;
+        opacity: 1 !important;
+    }
+
+    /* Selected option boxes / tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #f26359 !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+    }
+
+    /* Text inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
+
+    /* Remove icon inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    /* Dropdown menu background */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+    }
+
+    /* Dropdown options */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Dropdown option hover */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #f8d9d3 !important;
+        color: #000000 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+page_col1, page_col2, page_col3, page_col4, empty_col= st.columns([1,1,1,1,4])
+with page_col1:
+    if st.button('Landing', use_container_width = True):
+        st.switch_page('landing.py')
+
+with page_col2:
+    if st.button('Area Overview', use_container_width = True):
+        st.switch_page('pages/1_area_overview.py')
+
+with page_col3:
+    if st.button('Property Types', use_container_width = True):
+        st.switch_page('pages/2_property_types.py')
+
+with page_col4:
+    if st.button('Listing Candidates', use_container_width = True):
+        st.switch_page('pages/3_listing_candidates')
 
 st.set_page_config(layout='wide')
 
@@ -10,82 +235,139 @@ session = get_session()
 # TITLE ---
 
 st.title('Methodology and Risks')
-st.subheader('How the app calculates area comparisons and how to interpret the results')
+st.subheader('How the app calculates recommendations and how to interpret the results')
 
 # HELPER FUNCTIONS ---
 
 def source_card(title, description):
     st.markdown(
-        f"""<div style="background-color: #f4f3ee; border-radius: 10px; padding: 14px; min-height: 100px; margin-bottom: 10px;">
-<div style="font-weight: 600; font-size: 15px; margin-bottom: 5px;">
-{title}
-</div>
-<div style="font-size: 13px; line-height: 1.4; color: #4d4d4d;">
-{description}
-</div>
+        f"""<div style="background-color: #f4f3ee; border-radius: 10px; padding: 14px; min-height: 105px; margin-bottom: 10px;">
+<div style="font-weight: 600; font-size: 15px; margin-bottom: 5px; color: #000000;">{title}</div>
+<div style="font-size: 13px; line-height: 1.4; color: #4d4d4d;">{description}</div>
 </div>""",
         unsafe_allow_html=True
     )
 
-# METHODOLOGY ---
+# PERSONA METHODOLOGY ---
 
-with st.expander('ⓘ  How are areas ranked?', expanded=True):
+with st.expander('ⓘ  How does the investment score work?', expanded=True):
 
     st.write(
         """
-        The Area Overview page ranks neighbourhoods using a transparent ordering rule.
-        It is not currently a weighted investment score or a machine-learning prediction.
+        The app uses a persona-based investment score. This means the recommendation is not
+        the same for every investor. The score changes depending on the investor profile
+        selected on the homepage.
         """
     )
 
     st.write(
         """
-        For each neighbourhood, the app calculates the average annual revenue,
-        average nightly price and number of Airbnb listings.
+        The three investor personas are:
         """
     )
 
     st.markdown(
         """
-        - **Average annual revenue** — the average of `ESTIMATED_REVENUE_L365D`
-          across listings in that neighbourhood.
+        - **Yield Maximiser** — focuses mainly on maximising annual rental income.
 
-        - **Average nightly price** — the average of the listing `PRICE` field
-          across listings in that neighbourhood.
+        - **Occupancy Optimiser** — focuses on keeping the property booked consistently.
 
-        - **Number of listings** — the count of listing IDs associated with that
-          neighbourhood.
-
-        - **City** — assigned from the original source filename. Listings with
-          filenames containing `london`, `bristol`, or `manchester` are labelled
-          accordingly.
+        - **Quality Host** — focuses on guest satisfaction and premium hosting quality.
         """
     )
 
-    st.write('Areas are then ranked using the following SQL logic:')
+    st.write(
+        """
+        Each persona uses the same underlying measures, but gives them different importance.
+        This allows the app to explain recommendations based on the investor's goals rather
+        than using one generic ranking for everyone.
+        """
+    )
+
+    st.markdown('#### Persona weightings')
+
+    st.markdown(
+        """
+        - **Yield Maximiser:** 30% Revenue, 30% Occupancy, 20% Price, 10% Rating, 10% Location.
+
+        - **Occupancy Optimiser:** 40% Occupancy, 20% Revenue, 20% Rating, 10% Price, 10% Location.
+
+        - **Quality Host:** 40% Rating, 20% Occupancy, 20% Price, 10% Revenue, 10% Location.
+        """
+    )
+
+    st.write(
+        """
+        These weightings are used to make the score more transparent. For example, a property
+        with strong revenue may rank higher for a Yield Maximiser, while a highly rated and
+        consistently booked property may be more attractive for a Quality Host or Occupancy
+        Optimiser.
+        """
+    )
+
+# AREA OVERVIEW METHODOLOGY ---
+
+with st.expander('📍  How are neighbourhoods ranked?', expanded=True):
+
+    st.write(
+        """
+        The Area Overview page ranks neighbourhoods using the selected persona.
+        If no persona has been chosen, the app stops and asks the user to return to
+        the homepage before continuing.
+        """
+    )
+
+    st.write(
+        """
+        The neighbourhood data comes from `MART_AREA_OVERVIEW` and is joined to
+        `AI_OUTPUTS` using the neighbourhood name. The app filters the AI output so that
+        only rows matching the selected persona and the `area_overview` output type are used.
+        """
+    )
 
     st.code(
         """
-ROW_NUMBER() OVER (
-    ORDER BY average_annual_revenue DESC,
-             average_price ASC
-) AS investment_rank
+WHERE LOWER(l."persona") = LOWER('{safe_persona}')
+AND lower(l."output_type") = 'area_overview'
+
+ORDER BY l."investment_score" DESC
         """,
         language='sql'
     )
 
     st.write(
         """
-        This means that areas with higher average annual revenue appear first.
-        Where two areas have similar revenue, the area with the lower average
-        nightly price appears higher in the ranking.
+        The displayed investment rank is then created by ordering neighbourhoods from
+        highest to lowest investment score.
+        """
+    )
+
+    st.code(
+        """
+ROW_NUMBER() OVER (
+    ORDER BY l."investment_score" DESC
+) AS INVESTMENT_RANK
+        """,
+        language='sql'
+    )
+
+    st.markdown(
+        """
+        The Area Overview page also displays:
+
+        - **Investment rank** — the neighbourhood's position after sorting by persona-based investment score.
+        - **Investment score** — the score stored in `AI_OUTPUTS` for the selected persona.
+        - **Median annual revenue** — the median yearly revenue for listings in that neighbourhood.
+        - **Average rating** — the average guest rating in that neighbourhood.
+        - **POI density** — points of interest per square kilometre.
+        - **Area** — the neighbourhood area in square kilometres.
         """
     )
 
     st.info(
         """
-        The selected investor persona does not currently change the Area Overview
-        ranking. It is used when retrieving the AI Summary for the selected area.
+        The Area Overview ranking is no longer based only on annual revenue and price.
+        It is now persona-based and ordered by `investment_score`.
         """
     )
 
@@ -95,31 +377,175 @@ with st.expander('🗺️  How does the map work?', expanded=True):
 
     st.write(
         """
-        The map uses neighbourhood boundary polygons from the
-        `NEIGHBOURHOODS_GEO_CLEANED` table.
+        The map uses neighbourhood boundary polygons from `MART_AREA_OVERVIEW`.
+        The boundary is simplified before being displayed so that the map is faster
+        and easier to interact with.
         """
     )
 
     st.markdown(
         """
-        - Each neighbourhood is displayed using its stored geographic boundary.
+        - Boundaries are converted to GeoJSON using `ST_ASGEOJSON`.
 
-        - The centre point of each boundary is calculated using
-          `ST_CENTROID(boundary)`.
+        - Boundaries are simplified using `ST_SIMPLIFY(n.BOUNDARY, 50)`.
 
-        - Latitude is extracted using `ST_Y(...)`.
+        - The map centre is calculated using the centroid of each simplified boundary.
 
-        - Longitude is extracted using `ST_X(...)`.
+        - Latitude is extracted using `ST_Y`.
 
-        - The colour intensity of each neighbourhood is based on its average
-          annual revenue.
+        - Longitude is extracted using `ST_X`.
+
+        - The top three ranked neighbourhoods are highlighted using a stronger colour.
+
+        - Other neighbourhoods are shown in the lighter app background colour.
         """
     )
 
     st.write(
         """
-        Hovering over an area on the map displays the neighbourhood name and
-        its average annual revenue.
+        Clicking a neighbourhood on the map selects it, adds it to the starred
+        neighbourhood list if fewer than three have already been selected, and shows
+        the full analytics section for that area.
+        """
+    )
+
+    st.markdown(
+        """
+        The map tooltip shows the neighbourhood name, city, investment rank,
+        investment score, median annual revenue, average rating, POI density and area.
+        """
+    )
+
+# PROPERTY TYPE METHODOLOGY ---
+
+with st.expander('🏠  How are property types ranked?', expanded=True):
+
+    st.write(
+        """
+        The Property Type page starts from the three neighbourhoods starred on the
+        Area Overview page. The user then chooses one of those neighbourhoods to compare
+        property groups such as House, Apartment / Flat and Other property types.
+        """
+    )
+
+    st.write(
+        """
+        The page loads property group data from `MART_PROPERTY_GROUP` and joins it to
+        listing-level scores from `INVESTMENT_SCORES`. It groups listings by city,
+        neighbourhood and property group, then calculates average persona-specific
+        investment scores for each property group.
+        """
+    )
+
+    st.code(
+        """
+AVG(b.SCORE_YIELD_MAXIMISER) AS INVESTMENT_SCORE_YIELD,
+AVG(b.SCORE_OCCUPANCY_OPTIMISER) AS INVESTMENT_SCORE_OCCUPANCY,
+AVG(b.SCORE_QUALITY_HOST) AS INVESTMENT_SCORE_QUALITY
+        """,
+        language='sql'
+    )
+
+    st.write(
+        """
+        The selected persona determines which score column is used for ranking.
+        """
+    )
+
+    st.code(
+        """
+Yield_Maximiser      -> INVESTMENT_SCORE_YIELD
+Occupancy_Optimiser  -> INVESTMENT_SCORE_OCCUPANCY
+Quality_Host         -> INVESTMENT_SCORE_QUALITY
+        """,
+        language='text'
+    )
+
+    st.markdown(
+        """
+        The top property types are sorted from highest to lowest score for the selected
+        persona. The page also shows listing share using an interactive pie chart.
+        """
+    )
+
+    st.markdown(
+        """
+        The pie chart groups property types into:
+
+        - **House**
+        - **Apartment / Flat**
+        - **Others**
+        """
+    )
+
+    st.write(
+        """
+        For each group, the chart summarises listing count, listing share, average
+        investment score, ADR, median annual revenue, average rating, average bedrooms,
+        median sale price and sale transaction count where available.
+        """
+    )
+
+# LISTING CANDIDATES METHODOLOGY ---
+
+with st.expander('🏡  How are listing candidates ranked?', expanded=True):
+
+    st.write(
+        """
+        The Listing Candidates page starts from the property types starred on the
+        Property Type page. The user selects one starred property type, and the app
+        then finds the best matching listings in that city, neighbourhood and property group.
+        """
+    )
+
+    st.write(
+        """
+        Listing data comes from `MART_LISTING_CANDIDATES` and is joined to
+        `INVESTMENT_SCORES` using `LISTING_ID`.
+        """
+    )
+
+    st.markdown(
+        """
+        The selected persona again determines which score column is used:
+
+        - **Yield Maximiser** uses `INVESTMENT_SCORE_YIELD`.
+        - **Occupancy Optimiser** uses `INVESTMENT_SCORE_OCCUPANCY`.
+        - **Quality Host** uses `INVESTMENT_SCORE_QUALITY`.
+        """
+    )
+
+    st.write(
+        """
+        The app filters listings to the selected city, neighbourhood and property group,
+        removes listings without the required persona score, then sorts by that score in
+        descending order.
+        """
+    )
+
+    st.code(
+        """
+top_10_listings = selected_listing_data.sort_values(
+    by=score_column,
+    ascending=False
+).head(10)
+        """,
+        language='python'
+    )
+
+    st.markdown(
+        """
+        Each listing card displays:
+
+        - Listing name and image.
+        - Neighbourhood, property type and room type.
+        - Investment score.
+        - Annual revenue.
+        - ADR.
+        - RevPAR.
+        - Bedrooms, bathrooms, beds and guest capacity.
+        - Review score, number of reviews and occupancy rate.
+        - Link to the original listing where available.
         """
     )
 
@@ -129,8 +555,9 @@ with st.expander('▦  Data sources', expanded=True):
 
     st.write(
         """
-        The app combines Airbnb listing data with geographic neighbourhood data.
-        Additional public sources can be incorporated as the investment model develops.
+        The app combines Airbnb listing data, neighbourhood-level summary tables,
+        listing-level investment scores, property group summaries, AI-generated narratives
+        and supporting market data.
         """
     )
 
@@ -139,68 +566,84 @@ with st.expander('▦  Data sources', expanded=True):
     with source_col1:
         source_card(
             'Inside Airbnb',
-            """
-            Primary source for Airbnb listing information, including listing IDs,
-            neighbourhoods, nightly prices, estimated annual revenue and review data.
-            """
+            'Primary source for Airbnb listing information, including listing IDs, neighbourhoods, property types, room types, prices, revenue estimates, availability-related fields, ratings, reviews and listing URLs.'
         )
 
         source_card(
-            'Neighbourhood geographic data',
-            """
-            Geographic boundary data used to display neighbourhood polygons,
-            calculate map centroids and support area-level comparisons.
-            """
+            'MART_AREA_OVERVIEW',
+            'Gold-layer neighbourhood summary table used on the Area Overview page. It provides city, neighbourhood, listing count, ADR, occupancy, annual revenue, ratings, POI metrics, area and boundary geometry.'
+        )
+
+        source_card(
+            'MART_LISTING_CANDIDATES',
+            'Gold-layer listing table used on the Listing Candidates page. It provides listing-level revenue, ADR, RevPAR, occupancy, location, room details, reviews, POI counts, transport counts and listing URLs.'
         )
 
     with source_col2:
         source_card(
-            'HM Land Registry',
-            """
-            Intended source for property transaction data. This can support future
-            calculations such as median sale price, gross rental yield and payback period.
-            """
+            'INVESTMENT_SCORES',
+            'Gold-layer scoring table that stores the persona-specific listing scores: Yield Maximiser, Occupancy Optimiser and Quality Host.'
         )
 
         source_card(
-            'UK House Price Index',
-            """
-            Intended source for wider property-price trends and local market context.
-            This can help place Airbnb revenue data alongside longer-term property trends.
-            """
+            'MART_PROPERTY_GROUP',
+            'Gold-layer property group table used to compare property types within selected neighbourhoods, including listing counts, ADR, revenue, occupancy, ratings, bedrooms, sale price and transaction counts.'
         )
+
+        source_card(
+            'AI_OUTPUTS',
+            'Gold-layer table used for persona-specific area scores and AI narrative summaries. The Area Overview page uses it for neighbourhood investment scores and explanatory AI summaries.'
+        )
+
+    st.info(
+        """
+        HM Land Registry and UK House Price Index data are relevant to the wider project
+        because sale prices and property market context appear in fields such as
+        `MEDIAN_SALE_PRICE`, `AREA_MEDIAN_SALE_PRICE` and sale transaction counts.
+        """
+    )
 
 # AI SUMMARY ---
 
-with st.expander('✨  AI summary methodology', expanded=True):
+with st.expander('✨  How are AI summaries used?', expanded=True):
 
     st.write(
         """
-        The Area Overview page displays an AI-generated summary for the selected
-        neighbourhood and investor persona.
+        AI summaries are stored in `AI_OUTPUTS`. The app does not generate the narrative
+        live on the page. It retrieves a stored narrative that matches the selected
+        persona, neighbourhood and output type.
         """
     )
 
     st.markdown(
         """
-        The app searches the `AI_OUTPUTS` table using:
+        On the Area Overview page, the app filters summaries using:
 
-        - the selected investor persona
-        - the selected neighbourhood
+        - selected persona
+        - selected neighbourhood
+        - `output_type = area_overview`
         """
     )
 
     st.write(
         """
-        If a matching record exists, the app reads the stored `ai_narrative`
-        JSON and displays its `investment_summary` field.
+        If a matching record exists, the app reads the JSON stored in `ai_narrative`
+        and displays fields such as investment summary, key strengths, key risks,
+        confidence and recommended action.
+        """
+    )
+
+    st.markdown(
+        """
+        On the Property Type page, the app uses AI output with `output_type = recommendation`
+        to display recommendation commentary for the selected neighbourhood and persona.
         """
     )
 
     st.warning(
         """
-        AI summaries should be treated as explanatory commentary, not as a
-        replacement for the underlying metrics or independent investment research.
+        AI summaries are explanatory commentary. The underlying scores and metrics should
+        still be checked before making any investment decision.
         """
     )
 
@@ -212,19 +655,28 @@ with st.expander('⚖  Transparency, assumptions & limitations', expanded=True):
 
     st.markdown(
         """
-        - **Estimated annual revenue is not guaranteed income.** It is based on
-          historical Airbnb listing data and may differ from future performance.
+        - **Investment scores are decision-support scores, not guaranteed returns.**
+          They rank areas, property groups and listings according to the selected persona.
 
-        - **Average neighbourhood figures are not property-specific forecasts.**
-          Individual listings can perform differently because of property condition,
-          exact location, guest capacity, management quality and seasonality.
+        - **Estimated annual revenue is not guaranteed income.**
+          It is based on historical Airbnb-style listing data and may differ from future performance.
 
-        - **Average nightly price is not the same as a guaranteed achieved price.**
-          It is calculated from listing price data and may not reflect discounts,
-          cancellations, promotions or actual booking outcomes.
+        - **ADR means average daily rate.**
+          It represents average nightly pricing and may not equal the final achieved booking price.
 
-        - **Listing coverage may be incomplete.** Inside Airbnb data may not include
-          every active short-term rental listing in every area.
+        - **RevPAR means revenue per available room/night.**
+          In this app it is shown as an investment metric for comparing listing performance.
+
+        - **Occupancy rate is an estimate.**
+          It reflects estimated occupied nights or availability-derived booking behaviour and should
+          not be treated as a perfect record of actual stays.
+
+        - **Average and median neighbourhood figures are not property-specific forecasts.**
+          Individual properties may perform differently depending on quality, management,
+          exact location, amenities, seasonality and local competition.
+
+        - **POI and transport counts describe nearby amenities.**
+          They help explain location strength but do not guarantee higher revenue.
         """
     )
 
@@ -232,14 +684,33 @@ with st.expander('⚖  Transparency, assumptions & limitations', expanded=True):
 
     st.markdown(
         """
-        - In London, using a residential property as short-term accommodation for
-          more than 90 nights in a calendar year generally requires planning permission.
+        - In London, short-term letting of residential properties is generally limited
+          to 90 nights per calendar year unless planning permission is granted.
 
-        - This can materially affect potential annual revenue for London listings.
+        - This can materially affect annual revenue potential for London listings.
 
-        - Investors should also check leasehold conditions, mortgage terms,
-          insurance requirements and local council rules before operating a
-          short-term rental.
+        - Investors should check planning rules, leasehold terms, mortgage conditions,
+          insurance requirements and local council rules before operating a short-term rental.
+        """
+    )
+
+    st.markdown('#### Data limitations')
+
+    st.markdown(
+        """
+        - The data is a snapshot in time. Listings, prices, reviews, availability and
+          local market conditions can change.
+
+        - Inside Airbnb-style data may not capture every active short-term rental listing.
+
+        - Median sale prices and transaction counts depend on available property sales data
+          and may be sparse in some neighbourhood/property-type combinations.
+
+        - A high investment score does not include all real-world costs such as mortgage
+          payments, furnishing, cleaning, repairs, platform fees, management fees, insurance,
+          tax or licensing costs.
+
+        - The app is designed for comparison and research, not final investment decision-making.
         """
     )
 
@@ -247,8 +718,8 @@ with st.expander('⚖  Transparency, assumptions & limitations', expanded=True):
 
     st.warning(
         """
-        This app is designed to support initial research and comparison.
-        It does not provide financial, legal, tax or planning advice.
+        This app does not provide financial, legal, tax or planning advice.
+        It is intended to support transparent comparison and stakeholder discussion.
         """
     )
 
@@ -264,11 +735,9 @@ st.markdown(
         margin-top: 35px;
         padding-top: 15px;
     ">
-        Estimates are based on Airbnb listing data and supporting geographic data.
+        Estimates are based on Airbnb listing data, gold-layer summary tables and supporting property market data.
         This tool is for research and comparison only.
     </div>
     """,
     unsafe_allow_html=True
 )
-
-
