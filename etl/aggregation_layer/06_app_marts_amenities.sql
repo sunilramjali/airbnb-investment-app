@@ -91,6 +91,11 @@ CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_AREA_AMENITY_GAP
 AS
 WITH seg AS (
     -- Active listings with amenities, segmented into top revenue quartile vs rest, per area.
+    -- NOTE: "active" here = ANNUAL_REVENUE > 0, a DELIBERATELY looser population than the
+    -- shared IS_ACTIVE (>=30 booked nights) used by the property/strategy marts. The gap
+    -- analysis only needs any revenue signal to rank listings within an area, so the wider
+    -- net keeps more listings for the quartile split; it is intentionally not the like-for-like
+    -- investment universe.
     SELECT
         f.LISTING_ID,
         f.NEIGHBOURHOOD,

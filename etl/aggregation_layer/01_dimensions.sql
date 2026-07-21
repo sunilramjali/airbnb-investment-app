@@ -167,16 +167,65 @@ FROM SILVER.NEIGHBOURHOODS_GEO_CLEANED;
 CREATE OR REPLACE DYNAMIC TABLE GOLD.DIM_POI
     TARGET_LAG = DOWNSTREAM
     WAREHOUSE  = COMPUTE_WH
-    COMMENT    = 'Point-of-interest dimension (LOCATION geography) for listing proximity features.'
+    COMMENT    = 'Point-of-interest dimension (LOCATION geography) for listing proximity features, with IS_TRANSPORT / IS_DINING classification flags (single source for all POI counts).'
 AS
 SELECT
     NAME,
     CATEGORY,
     AMENITY_GROUP,
     CONFIDENCE,
-    LOCATION
+    LOCATION,
+    -- Single source of truth for POI classification. Consumed by
+    -- FCT_LISTING_POI (02) and the area POI marts (03); previously the
+    -- ILIKE keyword lists were copy-pasted in three places.
+    (CATEGORY ILIKE ANY ('%station%','%bus%','%transit%','%subway%','%tram%')) AS IS_TRANSPORT,
+    (AMENITY_GROUP ILIKE '%dining%')                                           AS IS_DINING
 FROM SILVER.POI_CLEANED
 WHERE CONFIDENCE >= 0.5;   -- keep reasonably confident POIs only
+
+-- ------------------------------------------------------------
+-- DIM_CITY_ASSUMPTIONS — grain: one row per city.
+-- Documented, configurable investment assumptions shared by the strategy
+-- marts (05_app_marts_strategy.sql), centralised HERE so the values live in
+-- one place instead of inline VALUES lists duplicated across each mart:
+--   CAP_NIGHTS                 = legal short-let night cap (entire-home
+--                                planning rule). London 90; else 365 (uncapped).
+--   ASSUMED_LT_GROSS_YIELD_PCT = approximate buy-to-let gross yield used as the
+--                                LT fallback when observed ONS rent (FCT_AREA_RENT)
+--                                is unavailable. Basis: published UK BTL gross-yield
+--                                reporting (e.g. Zoopla / Paragon regional yields).
+--   REALISTIC_OCC_NIGHTS       = achievable ST occupancy nights used for the
+--                                AT_CAP ceiling scenario. London = 90 (the legal
+--                                cap binds); uncapped cities ~70% market occupancy
+--                                (255) since 365-night full occupancy is unrealistic.
+--   ST_COST_PCT                = ST all-in operating cost as % of gross ST revenue
+--                                (management, cleaning, voids, furnishing amortisation).
+--   LT_COST_PCT                = LT operating cost as % of gross rent
+--                                (letting/management, voids, maintenance).
+-- ST/LT cost loads are flat per-city approximations (not segment-specific) used to
+-- derive NET yields alongside the gross figures. Static reference table: a VALUES
+-- list has no change-tracking source, so it cannot be a dynamic table. Update the
+-- VALUES list when refreshing assumptions.
+-- ------------------------------------------------------------
+CREATE OR REPLACE TABLE GOLD.DIM_CITY_ASSUMPTIONS AS
+SELECT
+    column1 AS CITY,
+    column2 AS CAP_NIGHTS,
+    column3 AS ASSUMED_LT_GROSS_YIELD_PCT,
+    column4 AS REALISTIC_OCC_NIGHTS,
+    column5 AS ST_COST_PCT,
+    column6 AS LT_COST_PCT
+FROM VALUES
+    ('London',             90,  4.5, 90,  28, 18),
+    ('Greater Manchester', 365, 6.0, 255, 28, 18),
+    ('Bristol',            365, 5.0, 255, 28, 18);
+
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.CITY IS 'City name (London / Greater Manchester / Bristol); join key.';
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.CAP_NIGHTS IS 'Legal short-let night cap for entire-home lets (London 90; else 365 = uncapped).';
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.ASSUMED_LT_GROSS_YIELD_PCT IS 'Assumed long-term buy-to-let gross yield percent; LT fallback when ONS observed rent is unavailable.';
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.REALISTIC_OCC_NIGHTS IS 'Realistic achievable ST occupancy nights for the AT_CAP ceiling (London 90 = legal cap; uncapped cities ~70% = 255).';
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.ST_COST_PCT IS 'ST all-in operating cost as % of gross ST revenue (management, cleaning, voids, furnishing amortisation).';
+COMMENT ON COLUMN GOLD.DIM_CITY_ASSUMPTIONS.LT_COST_PCT IS 'LT operating cost as % of gross rent (letting/management, voids, maintenance).';
 
 -- ------------------------------------------------------------
 -- DIM_DATE — generated calendar dimension.

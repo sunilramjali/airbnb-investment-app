@@ -14,7 +14,7 @@ USE SCHEMA GOLD;
 -- operating KPIs PLUS the Land Registry median buy price (valid at this grain
 -- because Price Paid carries property type but no bedroom count).
 --
--- BASIS: active (>=30 booked nights, i.e. OCCUPANCY_RATE >= 30/365), entire-home,
+-- BASIS: active (IS_ACTIVE = >=30 booked nights), entire-home,
 -- Flat/House listings only — the same like-for-like universe as the yield marts,
 -- so KPIs here reconcile with MART_AREA_STRATEGY.
 -- Source: per-listing rows from GOLD.MART_LISTING_CANDIDATES; sale price from
@@ -40,7 +40,7 @@ WITH base AS (
         ON n.NEIGHBOURHOOD = m.NEIGHBOURHOOD
     WHERE m.STRUCTURE_CLASS IN ('Flat', 'House')          -- purchasable dwellings only
       AND m.ROOM_TYPE = 'Entire home/apt'                 -- whole property
-      AND m.OCCUPANCY_RATE >= 30.0/365.0                  -- active listings only
+      AND m.IS_ACTIVE                                     -- active listings only (shared definition)
 ),
 agg AS (
     SELECT
@@ -115,7 +115,7 @@ WITH base AS (
         ON n.NEIGHBOURHOOD = m.NEIGHBOURHOOD
     WHERE m.STRUCTURE_CLASS IN ('Flat', 'House')
       AND m.ROOM_TYPE = 'Entire home/apt'
-      AND m.OCCUPANCY_RATE >= 30.0/365.0
+      AND m.IS_ACTIVE
       AND m.BEDROOMS >= 1                                 -- drop Studio (0) and Unknown (NULL); buckets 1/2/3/4+
 ),
 local_agg AS (

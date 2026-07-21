@@ -65,6 +65,7 @@ STEPS = [
             "GOLD.DIM_NEIGHBOURHOOD",
             "GOLD.DIM_PROPERTY_GROUP",
             "GOLD.DIM_POI",
+            "GOLD.DIM_CITY_ASSUMPTIONS",
             "GOLD.DIM_DATE",
         ],
     },
@@ -100,6 +101,8 @@ STEPS = [
         "produces": [
             "GOLD.MART_AREA_STRATEGY",
             "GOLD.MART_AREA_STRATEGY_BEDROOMS",
+            "GOLD.MART_ST_VS_LT_PROPERTY_TYPE",
+            "GOLD.MART_ST_VS_LT_BEDROOMS",
         ],
     },
     {

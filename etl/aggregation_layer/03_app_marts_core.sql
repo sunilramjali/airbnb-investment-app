@@ -35,7 +35,9 @@ SELECT
     d.BEDS,
     d.BATHROOMS,
     s.ADR,
+    s.OCCUPANCY_NIGHTS,
     s.OCCUPANCY_RATE,
+    (s.OCCUPANCY_NIGHTS >= 30) AS IS_ACTIVE,
     s.ANNUAL_REVENUE,
     s.REVPAR,
     (s.ANNUAL_REVENUE IS NOT NULL) AS HAS_REVENUE_DATA,
@@ -88,9 +90,8 @@ area_poi AS (
     SELECT
         n.NEIGHBOURHOOD,
         COUNT(*)                                                           AS POI_COUNT,
-        COUNT(CASE WHEN p.CATEGORY ILIKE ANY ('%station%','%bus%','%transit%','%subway%','%tram%')
-                   THEN 1 END)                                             AS TRANSPORT_COUNT,
-        COUNT(CASE WHEN p.AMENITY_GROUP ILIKE '%dining%' THEN 1 END)       AS DINING_COUNT
+        COUNT(CASE WHEN p.IS_TRANSPORT THEN 1 END)                         AS TRANSPORT_COUNT,
+        COUNT(CASE WHEN p.IS_DINING    THEN 1 END)                         AS DINING_COUNT
     FROM GOLD.DIM_NEIGHBOURHOOD n
     JOIN GOLD.DIM_POI p
         ON ST_CONTAINS(n.BOUNDARY, p.LOCATION)
@@ -140,8 +141,8 @@ SELECT
     p.NAME                                                             AS POI_NAME,
     p.CATEGORY,
     p.AMENITY_GROUP,
-    (p.CATEGORY ILIKE ANY ('%station%','%bus%','%transit%','%subway%','%tram%')) AS IS_TRANSPORT,
-    (p.AMENITY_GROUP ILIKE '%dining%')                                 AS IS_DINING,
+    p.IS_TRANSPORT,
+    p.IS_DINING,
     ST_Y(p.LOCATION)                                                   AS LATITUDE,
     ST_X(p.LOCATION)                                                   AS LONGITUDE
 FROM GOLD.DIM_NEIGHBOURHOOD n
@@ -214,7 +215,9 @@ COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BEDROOMS IS 'Number of bedrooms (
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BEDS IS 'Number of beds.';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.BATHROOMS IS 'Number of bathrooms (may be fractional).';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ADR IS 'Average daily rate = nightly price at scrape time.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.OCCUPANCY_NIGHTS IS 'Estimated booked nights over the trailing 365 days (scraper estimate).';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.OCCUPANCY_RATE IS 'Estimated occupancy (0..1) = estimated booked nights / 365.';
+COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.IS_ACTIVE IS 'TRUE if OCCUPANCY_NIGHTS >= 30. The single shared active-listing definition consumed by the property (04) and strategy (05) marts.';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.ANNUAL_REVENUE IS 'Estimated trailing-12-month revenue (scraper estimate).';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.REVPAR IS 'Revenue per available night = ANNUAL_REVENUE / 365.';
 COMMENT ON COLUMN GOLD.MART_LISTING_CANDIDATES.HAS_REVENUE_DATA IS 'TRUE if ANNUAL_REVENUE is populated.';
