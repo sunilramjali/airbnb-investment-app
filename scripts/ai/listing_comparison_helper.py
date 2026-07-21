@@ -12,7 +12,6 @@ Does NOT use snowflake.connector, streamlit, or a main block.
 """
 
 import json
-import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -88,55 +87,30 @@ def check_cache(session, city, neighbourhood, persona, property_group):
         return None
 
 
-def ensure_cache_table(session):
-    # Deterministic schema with uppercase columns so reads/writes align.
-    session.sql(f"""
-        CREATE TABLE IF NOT EXISTS
-        {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE} (
-            CITY                   STRING,
-            NEIGHBOURHOOD_CLEANSED STRING,
-            PERSONA                STRING,
-            PROPERTY_GROUP         STRING,
-            TOP_LISTING_NAME       STRING,
-            LISTING_COUNT          NUMBER,
-            AI_NARRATIVE           STRING,
-            MODEL_USED             STRING,
-            PROMPT_VERSION         STRING,
-            COMPUTED_AT            TIMESTAMP_NTZ
-        )
-    """).collect()
-
-
 def write_to_cache(session, city, neighbourhood, persona, property_group,
                    narrative, top_listing_name, listing_count):
-    # Uppercase column names to match the unquoted uppercase reads in
-    # check_cache(); written with quote_identifiers=False.
-    df = pd.DataFrame([{
-        'CITY':                   city,
-        'NEIGHBOURHOOD_CLEANSED': neighbourhood,
-        'PERSONA':                persona,
-        'PROPERTY_GROUP':         property_group,
-        'TOP_LISTING_NAME':       top_listing_name,
-        'LISTING_COUNT':          listing_count,
-        'AI_NARRATIVE':           narrative,
-        'MODEL_USED':             MODEL,
-        'PROMPT_VERSION':         PROMPT_VERSION,
-        'COMPUTED_AT':            pd.Timestamp.now(),
-    }])
+    # Parameterized INSERT (bind variables) — needs only INSERT privilege on the
+    # pre-created table, avoiding the CREATE TABLE / temp-stage rights that
+    # write_pandas requires. Binds also make the JSON narrative injection-safe.
+    insert_sql = f"""
+        INSERT INTO {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE}
+            (CITY, NEIGHBOURHOOD_CLEANSED, PERSONA, PROPERTY_GROUP,
+             TOP_LISTING_NAME, LISTING_COUNT, AI_NARRATIVE,
+             MODEL_USED, PROMPT_VERSION, COMPUTED_AT)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
+    """
+    params = [
+        city, neighbourhood, persona, property_group,
+        top_listing_name, int(listing_count), narrative,
+        MODEL, PROMPT_VERSION,
+    ]
 
     try:
-        ensure_cache_table(session)
-        session.write_pandas(
-            df,
-            CACHE_TABLE,
-            database=DATABASE,
-            schema=GOLD_SCHEMA,
-            overwrite=False,
-            auto_create_table=True,
-            quote_identifiers=False
-        )
+        session.sql(insert_sql, params=params).collect()
     except Exception as e:
-        print(f'Cache write failed: {e}')
+        # Surface, don't swallow: a silent failure here is why the cache
+        # never populated. Caller can log/handle it.
+        raise RuntimeError(f'Cache write failed: {e}') from e
 
 
 # ---------------------------------------------------------------------------
@@ -405,13 +379,18 @@ def get_or_generate_comparison(session, api_key, city, neighbourhood,
 
     narrative = parse_response(ai_response)
 
-    # Step 4: Store in cache
+    # Step 4: Store in cache. A cache-write failure must not break the page —
+    # the narrative is already generated — so log and continue.
     top_listing_name = top_3.iloc[0]['name'] if len(top_3) > 0 else 'Unknown'
 
-    write_to_cache(
-        session, city, neighbourhood, persona, property_group,
-        narrative, top_listing_name, len(df_listings)
-    )
+    try:
+        write_to_cache(
+            session, city, neighbourhood, persona, property_group,
+            narrative, top_listing_name, len(df_listings)
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(str(e))
 
     # Step 5: Return narrative
     return narrative
