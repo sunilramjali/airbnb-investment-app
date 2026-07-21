@@ -16,6 +16,15 @@ CLAUDE.md
 
 # Ignore python cache
 __pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Ignore snowflake cache
+.snowflake/
+.folder
+
+# Ignore local session/progress logs (personal notes, not for the repo)
+log/
 
 # Ignore hidden file automatically created by macOS Finder
 .DS_Store
