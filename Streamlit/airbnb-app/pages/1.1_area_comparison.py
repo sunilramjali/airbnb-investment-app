@@ -248,6 +248,22 @@ if len(starred_neighbourhoods) != 3:
 
 session = get_session()
 
+# CACHED AI COMPARISON WRAPPER
+# In-memory (per running app) cache layered on top of the persistent Snowflake
+# ST_VS_LT_COMPARISON_CACHE table. Repeat requests for the same city/persona/
+# neighbourhoods return instantly without re-hitting Gemini or the table.
+# Leading-underscore args are skipped by Streamlit's hasher (the Snowpark session
+# is unhashable and the API key is a secret); names is passed as a tuple so it hashes.
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_comparison(_session, _api_key, city, names, persona):
+    return ach.get_or_generate_comparison(
+        _session,
+        _api_key,
+        city,
+        list(names),
+        persona,
+    )
+
 # SQL QUERY FOR SHORT-TERM AND LONG-TERM STRATEGY
 @st.cache_data(ttl=300)
 def load_area_strategy(_session):
@@ -1156,11 +1172,11 @@ with ai_col:
 
                 try:
                     with st.spinner("Generating AI comparison..."):
-                        narrative_json = ach.get_or_generate_comparison(
+                        narrative_json = get_cached_comparison(
                             session,
                             api_key,
                             comparison_city,
-                            comparison_names,
+                            tuple(comparison_names),
                             persona.upper(),
                         )
                 except Exception as e:
