@@ -121,8 +121,8 @@ def write_to_cache(session, city, neighbourhood, persona, property_group,
 # ---------------------------------------------------------------------------
 
 def load_top_listings(session, city, neighbourhood, persona, property_group):
-    score_col = PERSONAS[persona]['score_col']
-    # score columns in INVESTMENT_SCORES are lowercase due to write_pandas
+    score_col = PERSONAS[persona]['score_col'].upper()
+    # INVESTMENT_SCORES columns are standard uppercase identifiers.
 
     df = session.sql(f"""
         SELECT
@@ -143,16 +143,16 @@ def load_top_listings(session, city, neighbourhood, persona, property_group):
             lc.DINING_COUNT_500M,
             lc.HOST_IS_SUPERHOST,
             lc.LISTING_URL,
-            i."{score_col}"     AS persona_score
+            i.{score_col}       AS persona_score
         FROM {DATABASE}.{GOLD_SCHEMA}.INVESTMENT_SCORES i
         JOIN {DATABASE}.{GOLD_SCHEMA}.MART_LISTING_CANDIDATES lc
-            ON i."listing_id" = lc.LISTING_ID
-        WHERE i."city" = '{city}'
-        AND i."neighbourhood_cleansed" = '{neighbourhood}'
+            ON i.LISTING_ID = lc.LISTING_ID
+        WHERE i.CITY = '{city}'
+        AND i.NEIGHBOURHOOD_CLEANSED = '{neighbourhood}'
         AND lc.PROPERTY_GROUP = '{property_group}'
         AND lc.ANNUAL_REVENUE > 0
         AND lc.OCCUPANCY_RATE > 0
-        ORDER BY i."{score_col}" DESC
+        ORDER BY i.{score_col} DESC
         LIMIT 10
     """).to_pandas()
 
