@@ -88,29 +88,52 @@ def check_cache(session, city, neighbourhood, persona, property_group):
         return None
 
 
+def ensure_cache_table(session):
+    # Deterministic schema with uppercase columns so reads/writes align.
+    session.sql(f"""
+        CREATE TABLE IF NOT EXISTS
+        {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE} (
+            CITY                   STRING,
+            NEIGHBOURHOOD_CLEANSED STRING,
+            PERSONA                STRING,
+            PROPERTY_GROUP         STRING,
+            TOP_LISTING_NAME       STRING,
+            LISTING_COUNT          NUMBER,
+            AI_NARRATIVE           STRING,
+            MODEL_USED             STRING,
+            PROMPT_VERSION         STRING,
+            COMPUTED_AT            TIMESTAMP_NTZ
+        )
+    """).collect()
+
+
 def write_to_cache(session, city, neighbourhood, persona, property_group,
                    narrative, top_listing_name, listing_count):
+    # Uppercase column names to match the unquoted uppercase reads in
+    # check_cache(); written with quote_identifiers=False.
     df = pd.DataFrame([{
-        'city':                   city,
-        'neighbourhood_cleansed': neighbourhood,
-        'persona':                persona,
-        'property_group':         property_group,
-        'top_listing_name':       top_listing_name,
-        'listing_count':          listing_count,
-        'ai_narrative':           narrative,
-        'model_used':             MODEL,
-        'prompt_version':         PROMPT_VERSION,
-        'computed_at':            pd.Timestamp.now(),
+        'CITY':                   city,
+        'NEIGHBOURHOOD_CLEANSED': neighbourhood,
+        'PERSONA':                persona,
+        'PROPERTY_GROUP':         property_group,
+        'TOP_LISTING_NAME':       top_listing_name,
+        'LISTING_COUNT':          listing_count,
+        'AI_NARRATIVE':           narrative,
+        'MODEL_USED':             MODEL,
+        'PROMPT_VERSION':         PROMPT_VERSION,
+        'COMPUTED_AT':            pd.Timestamp.now(),
     }])
 
     try:
+        ensure_cache_table(session)
         session.write_pandas(
             df,
             CACHE_TABLE,
             database=DATABASE,
             schema=GOLD_SCHEMA,
             overwrite=False,
-            auto_create_table=True
+            auto_create_table=True,
+            quote_identifiers=False
         )
     except Exception as e:
         print(f'Cache write failed: {e}')
