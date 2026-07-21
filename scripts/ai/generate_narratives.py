@@ -16,7 +16,7 @@ Required environment variables:
     GOOGLE_API_KEY
 
 Run:
-    python scripts/generate_narratives.py
+    python scripts/ai/generate_narratives.py
 """
 
 import os
@@ -39,9 +39,13 @@ OUTPUT_TABLE   = 'AI_OUTPUTS'
 MODEL          = 'gemini-3.1-flash-lite'
 OUTPUT_TYPE    = 'AREA_OVERVIEW'
 PROMPT_VERSION = 'v2'
+# 'resume' — skip already generated rows, fill gaps only
+# 'full'   — delete all existing AREA_OVERVIEW rows and regenerate from scratch
+#             Use 'full' when prompt logic has changed or Gold tables have been updated
+RUN_MODE       = 'full'
 
-CITIES = ['BRISTOL', 'LONDON', 'GREATER_MANCHESTER']
-
+CITIES = ['Bristol', 'London', 'Greater Manchester']
+# CITIES = ['Bristol']
 PERSONAS = {
     'YIELD_MAXIMISER': {
         'label':     'Yield Maximiser',
@@ -87,45 +91,65 @@ def get_snowflake_connection():
 # 1. Load
 # ---------------------------------------------------------------------------
 
+def clear_existing_narratives(conn, cities):
+    city_list = ', '.join([f"'{c}'" for c in cities])
+    conn.cursor().execute(f"""
+        DELETE FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
+        WHERE "output_type" = 'AREA_OVERVIEW'
+        AND "city" IN ({city_list})
+    """)
+    print(f'Cleared existing AREA_OVERVIEW rows '
+          f'for: {", ".join(cities)}')
+
+
+def load_existing_narratives(conn, city):
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS')
+        df = cur.fetch_pandas_all()
+        df.columns = df.columns.str.lower()
+        df = df[
+            (df['city'] == city) &
+            (df['output_type'] == OUTPUT_TYPE) &
+            (df['ai_narrative'].notna())
+        ][['neighbourhood_cleansed', 'persona']]
+        print(f'  Found {len(df)} existing {OUTPUT_TYPE} '
+              f'rows for {city} — will skip these')
+        return df
+    except Exception:
+        return pd.DataFrame(
+            columns=['neighbourhood_cleansed', 'persona']
+        )
+
+
 def load_gold_data(conn, city):
-    df_borough = pd.read_sql(f"""
-        SELECT
-            "city",
-            "neighbourhood_cleansed",
-            "listing_count",
-            "avg_price",
-            "avg_occupancy",
-            "avg_revenue",
-            "avg_review_rating",
-            "pct_superhost",
-            "count_entire_home_apt",
-            "count_private_room",
-            "score_yield_maximiser",
-            "score_occupancy_optimiser",
-            "score_quality_host"
-        FROM {DATABASE}.{GOLD_SCHEMA}.BOROUGH_SUMMARY
-        WHERE "city" = '{city}'
-    """, conn)
+    cur = conn.cursor()
 
-    df_themes = pd.read_sql(f"""
-        SELECT
-            "neighbourhood_cleansed",
-            "top_theme",
-            "pct_mentions_price",
-            "pct_mentions_cleanliness",
-            "pct_mentions_location",
-            "pct_mentions_checkin",
-            "avg_sentiment_score"
-        FROM {DATABASE}.{GOLD_SCHEMA}.REVIEW_THEMES
-        WHERE "city" = '{city}'
-    """, conn)
+    # SELECT * avoids column-identifier case issues from Snowpark write_pandas;
+    # normalise to lowercase and filter in Python.
+    cur.execute(f'SELECT * FROM {DATABASE}.{GOLD_SCHEMA}.BOROUGH_SUMMARY')
+    df_borough = cur.fetch_pandas_all()
+    df_borough.columns = df_borough.columns.str.lower()
+    df_borough = df_borough[df_borough['city'] == city][[
+        'city', 'neighbourhood_cleansed', 'listing_count',
+        'avg_price', 'avg_occupancy', 'avg_revenue',
+        'avg_review_rating', 'pct_superhost',
+        'count_entire_home_apt', 'count_private_room',
+        'score_yield_maximiser', 'score_occupancy_optimiser',
+        'score_quality_host',
+    ]]
 
-    df = df_borough.merge(
-        df_themes,
-        on='neighbourhood_cleansed',
-        how='left'
-    )
+    cur.execute(f'SELECT * FROM {DATABASE}.{GOLD_SCHEMA}.REVIEW_THEMES')
+    df_themes = cur.fetch_pandas_all()
+    df_themes.columns = df_themes.columns.str.lower()
+    df_themes = df_themes[df_themes['city'] == city][[
+        'neighbourhood_cleansed', 'top_theme',
+        'pct_mentions_price', 'pct_mentions_cleanliness',
+        'pct_mentions_location', 'pct_mentions_checkin',
+        'avg_sentiment_score',
+    ]]
 
+    df = df_borough.merge(df_themes, on='neighbourhood_cleansed', how='left')
     print(f'Loaded {len(df)} neighbourhoods for {city}')
     return df
 
@@ -221,9 +245,26 @@ def generate_narratives(conn, client, city):
     all_rows = []
     df = load_gold_data(conn, city)
 
+    if RUN_MODE == 'resume':
+        existing = load_existing_narratives(conn, city)
+    else:
+        existing = pd.DataFrame(
+            columns=['neighbourhood_cleansed', 'persona']
+        )
+
     for _, row in df.iterrows():
         neighbourhood = row['neighbourhood_cleansed']
         for persona_key, persona in PERSONAS.items():
+            if len(existing) > 0:
+                already_done = existing[
+                    (existing['neighbourhood_cleansed'] == neighbourhood) &
+                    (existing['persona'] == persona_key)
+                ]
+                if len(already_done) > 0:
+                    print(f'  {neighbourhood} / {persona_key} '
+                          f'— skipping, already generated')
+                    continue
+
             system_prompt, user_prompt = build_prompt(row, persona_key)
 
             ai_response = call_gemini(client, system_prompt, user_prompt)
@@ -263,7 +304,6 @@ def generate_narratives(conn, client, city):
             # Small delay to avoid rate limiting
             time.sleep(4)
 
-    print(f'{city} complete — {len(df) * len(PERSONAS)} rows generated')
     return pd.DataFrame(all_rows)
 
 
@@ -272,6 +312,9 @@ def generate_narratives(conn, client, city):
 # ---------------------------------------------------------------------------
 
 def write_to_snowflake(conn, df, overwrite=False):
+    if len(df) == 0:
+        print('  No new rows to write.')
+        return
     write_pandas(
         conn,
         df,
@@ -290,18 +333,20 @@ def write_to_snowflake(conn, df, overwrite=False):
 # ---------------------------------------------------------------------------
 
 def validate(conn):
-    df_val = pd.read_sql(f"""
-        SELECT
-            "city",
-            "persona",
-            "output_type",
-            COUNT(*) AS total,
-            COUNT("ai_narrative") AS with_narrative,
-            COUNT("confidence") AS with_confidence
-        FROM {DATABASE}.{GOLD_SCHEMA}.{OUTPUT_TABLE}
-        GROUP BY "city", "persona", "output_type"
-        ORDER BY "city", "persona", "output_type"
-    """, conn)
+    cur = conn.cursor()
+    cur.execute(f'SELECT * FROM {DATABASE}.{GOLD_SCHEMA}.{OUTPUT_TABLE}')
+    df = cur.fetch_pandas_all()
+    df.columns = df.columns.str.lower()
+    df_val = (
+        df.groupby(['city', 'persona', 'output_type'])
+        .agg(
+            total=('city', 'count'),
+            with_narrative=('ai_narrative', lambda x: x.notna().sum()),
+            with_confidence=('confidence', lambda x: x.notna().sum()),
+        )
+        .reset_index()
+        .sort_values(['city', 'persona', 'output_type'])
+    )
     print(df_val.to_string(index=False))
 
 
@@ -314,24 +359,17 @@ if __name__ == '__main__':
     conn   = get_snowflake_connection()
     client = get_gemini_client()
     print('Connections established.')
+    print(f'Run mode: {RUN_MODE}')
 
-    # Truncate once before loop to avoid duplicates
-    try:
-        conn.cursor().execute(
-            'TRUNCATE TABLE AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS'
-        )
-        print('AI_OUTPUTS table truncated — starting fresh.')
-    except Exception as e:
-        print(f'Note: Could not truncate table (may not exist yet): {e}')
+    if RUN_MODE == 'full':
+        clear_existing_narratives(conn, CITIES)
 
-    # Process and write each city separately
     for city in CITIES:
         print(f'\nProcessing {city}...')
-        df = generate_narratives(conn, client, city)
-        write_to_snowflake(conn, df, overwrite=False)
-        print(f'{city} complete — {len(df)} rows written.')
+        df_narratives = generate_narratives(conn, client, city)
+        write_to_snowflake(conn, df_narratives, overwrite=False)
+        print(f'{city} complete — {len(df_narratives)} rows written.')
 
     validate(conn)
     conn.close()
-    print('Done. Google API key can now be deleted from '
-          'aistudio.google.com after verifying results.')
+    print('Done.')
