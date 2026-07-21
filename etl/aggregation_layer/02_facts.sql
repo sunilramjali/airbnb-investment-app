@@ -92,9 +92,8 @@ AS
 SELECT
     l.LISTING_ID,
     COUNT(p.NAME)                                                       AS POI_COUNT_500M,
-    COUNT(CASE WHEN p.CATEGORY ILIKE ANY ('%station%','%bus%','%transit%','%subway%','%tram%')
-               THEN 1 END)                                              AS TRANSPORT_COUNT_500M,
-    COUNT(CASE WHEN p.AMENITY_GROUP ILIKE '%dining%' THEN 1 END)        AS DINING_COUNT_500M
+    COUNT(CASE WHEN p.IS_TRANSPORT THEN 1 END)                          AS TRANSPORT_COUNT_500M,
+    COUNT(CASE WHEN p.IS_DINING    THEN 1 END)                          AS DINING_COUNT_500M
 FROM GOLD.DIM_LISTING l
 LEFT JOIN GOLD.DIM_POI p
     ON ST_DWITHIN(l.GEO_POINT, p.LOCATION, 500)
