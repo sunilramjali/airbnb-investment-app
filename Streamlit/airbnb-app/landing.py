@@ -2,6 +2,8 @@
 import streamlit as st
 from db import get_session
 
+st.set_page_config(layout='wide')
+
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
