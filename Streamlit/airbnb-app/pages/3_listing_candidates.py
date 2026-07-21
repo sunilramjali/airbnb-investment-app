@@ -1,6 +1,20 @@
+# Listing Candidates page: ranks top-10 listings per persona and renders an AI top-vs-bottom comparison via Gemini.
+# Co-authored with CoCo
+import json
+import os
+import sys
+
 import streamlit as st
 import pandas as pd
 from db import get_session
+
+# Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
+_SCRIPTS_AI = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "ai")
+)
+if _SCRIPTS_AI not in sys.path:
+    sys.path.insert(0, _SCRIPTS_AI)
+import listing_comparison_helper as lch
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -572,5 +586,63 @@ if selected_property_group is not None:
                                         st.rerun()
                 
                         st.caption(f"{len(starred_listings)} / 3 selected")
+
+                st.divider()
+                st.markdown("### AI Comparison: Top 3 vs Bottom 3")
+
+                api_key = st.secrets.get("gemini", {}).get("api_key")
+                if not api_key:
+                    st.info("Add a [gemini] api_key to secrets to enable the AI comparison.")
+                else:
+                    with st.container(border=True):
+                        try:
+                            with st.spinner("Generating AI comparison..."):
+                                narrative_json = lch.get_or_generate_comparison(
+                                    session,
+                                    api_key,
+                                    selected_city,
+                                    selected_neighbourhood,
+                                    persona_clean.upper(),
+                                    selected_property_group,
+                                )
+                        except Exception as e:
+                            narrative_json = None
+                            st.error(f"AI comparison failed: {e}")
+
+                        if narrative_json is None:
+                            st.info("Not enough listings here for an AI comparison (need at least 6).")
+                        else:
+                            try:
+                                data = json.loads(narrative_json)
+                            except (ValueError, TypeError):
+                                data = None
+
+                            if data is None:
+                                st.write(narrative_json)
+                            else:
+                                st.write(data.get("comparison_summary", ""))
+
+                                top = data.get("top_performer")
+                                if top:
+                                    st.markdown(f"**Top performer: {top}**")
+                                    st.write(data.get("top_performer_reason", ""))
+
+                                if data.get("key_differentiator"):
+                                    st.markdown("**Key differentiator**")
+                                    st.write(data["key_differentiator"])
+
+                                if data.get("location_insight"):
+                                    st.markdown("**Location insight**")
+                                    st.write(data["location_insight"])
+
+                                look_for = data.get("what_to_look_for") or []
+                                if look_for:
+                                    st.markdown("**What to look for**")
+                                    for item in look_for:
+                                        st.markdown(f"- {item}")
+
+                                if data.get("what_to_avoid"):
+                                    st.markdown("**What to avoid**")
+                                    st.write(data["what_to_avoid"])
 
 #AI-summary --- to be continued

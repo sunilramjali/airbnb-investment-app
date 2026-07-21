@@ -1,4 +1,4 @@
-# Streamlit landing page: investor persona selection plus a temporary Gemini live-API check.
+# Streamlit landing page: investor persona selection and navigation.
 # Co-authored with CoCo
 # Import python packages
 import streamlit as st
@@ -268,20 +268,6 @@ st.write(
     """Data-driven insights to help you find the best short-term rental opportunities in the UK. Select your investor profile to get personalised recommendations.
   """
 )
-
-# ===== GEMINI LIVE API CHECK — TEMPORARY, safe to delete this whole block =====
-with st.expander("Gemini live API check"):
-    if "gemini" not in st.secrets:
-        st.warning("No [gemini] key found in secrets.")
-    elif st.button("Test Gemini live call"):
-        try:
-            from gemini import generate
-            reply = generate("Reply with exactly: pong")
-            st.success("Gemini is working ✅")
-            st.write(reply)
-        except Exception as e:
-            st.error(f"Gemini call failed ❌ — {e}")
-# ===== END GEMINI LIVE API CHECK =====
 
 session = get_session()
 
