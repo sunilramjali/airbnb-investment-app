@@ -1,5 +1,8 @@
+# Area Comparison page: renders ST-vs-LT + seasonal charts and an AI summary generated via area_comparison_helper.
+# Co-authored with CoCo
 import streamlit as st
 import os
+import sys
 import pydeck as pdk
 import json
 import altair as alt
@@ -8,6 +11,14 @@ import numpy as np
 from db import get_session
 #import plotly.graph_objects as go
 from snowflake.snowpark.functions import st_x, st_y
+
+# Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
+_SCRIPTS_AI = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "ai")
+)
+if _SCRIPTS_AI not in sys.path:
+    sys.path.insert(0, _SCRIPTS_AI)
+import area_comparison_helper as ach
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -1118,8 +1129,76 @@ with occupancy_col:
             )
 
 #AI SUMMARY
-#with ai_col:
-    
+with ai_col:
+    with st.container(border=True):
+
+        st.markdown("### AI Comparison: ST vs LT")
+
+        st.caption(
+            "Persona-based short-term vs long-term summary across your "
+            "3 starred neighbourhoods, including the seasonal trend."
+        )
+
+        persona = st.session_state.get("persona")
+        api_key = st.secrets.get("gemini", {}).get("api_key")
+
+        comparison_city = starred_neighbourhoods[0]["city"]
+        comparison_names = [
+            d["neighbourhood"] for d in starred_neighbourhoods[:3]
+        ]
+
+        if persona is None:
+            st.info("Select a persona on the landing page to enable the AI summary.")
+        elif not api_key:
+            st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
+        else:
+            if st.button("Generate AI summary", use_container_width=True):
+
+                try:
+                    with st.spinner("Generating AI comparison..."):
+                        narrative_json = ach.get_or_generate_comparison(
+                            session,
+                            api_key,
+                            comparison_city,
+                            comparison_names,
+                            persona.upper(),
+                        )
+                except Exception as e:
+                    narrative_json = None
+                    st.error(f"AI comparison failed: {e}")
+
+                if narrative_json is None:
+                    st.info(
+                        "Not enough comparable ST vs LT data for these "
+                        "neighbourhoods to generate a summary."
+                    )
+                else:
+                    try:
+                        data = json.loads(narrative_json)
+                    except (ValueError, TypeError):
+                        data = None
+
+                    if data is None:
+                        st.write(narrative_json)
+                    else:
+                        st.write(data.get("comparison_summary", ""))
+
+                        best = data.get("best_neighbourhood")
+                        if best:
+                            st.markdown(f"**Best fit: {best}**")
+                            st.write(data.get("best_neighbourhood_reason", ""))
+
+                        if data.get("key_differentiator"):
+                            st.markdown("**Key differentiator**")
+                            st.write(data["key_differentiator"])
+
+                        if data.get("seasonality_verdict"):
+                            st.markdown("**Seasonal trend**")
+                            st.write(data["seasonality_verdict"])
+
+                        if data.get("what_to_avoid"):
+                            st.markdown("**What to avoid**")
+                            st.write(data["what_to_avoid"])
 
 st.divider()
 

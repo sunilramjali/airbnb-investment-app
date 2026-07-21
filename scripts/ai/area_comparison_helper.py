@@ -1,19 +1,20 @@
-# Helper for the Area Overview page: caches and generates persona-based ST-vs-LT neighbourhood comparisons via the shared Gemini gateway.
+# Helper for the Area Comparison page: caches and generates persona-based ST-vs-LT + seasonal neighbourhood comparisons via the shared Gemini gateway.
 # Co-authored with CoCo
 """
 area_comparison_helper.py
 --------------------------
-Helper module for the Area Overview page's "starred neighbourhoods"
+Helper module for the Area Comparison page's "starred neighbourhoods"
 ST vs LT comparison feature. Import and call
 get_or_generate_comparison() — all other functions are internal.
 
 Runs inside Snowflake Streamlit (Snowpark session).
 Does NOT use snowflake.connector, streamlit, or a main block.
 
-MART_AREA_SEASONAL has no STRUCTURE_CLASS column, so seasonality
-here is neighbourhood-level, aggregated across property types
-(unlike MART_AREA_STRATEGY / MART_AREA_STRATEGY_BEDROOMS, which are
-both structure-class-specific). Season averages are nights-weighted
+Scope: ST-vs-LT strategy + seasonal occupancy trend, aggregated
+across all property structures per neighbourhood (matching the
+Area Comparison page, which is not structure-segmented). The
+ST vs LT figures use the same listing-count-weighted aggregation
+the page uses. Season averages are nights-weighted
 (sum(booked_nights) / sum(total_nights)) rather than a plain mean of
 monthly OCCUPANCY_RATE.
 """
@@ -75,7 +76,7 @@ def make_cache_key(neighbourhoods):
     return ','.join(sorted(n.strip() for n in neighbourhoods))
 
 
-def check_cache(session, city, neighbourhood_group, persona, structure_class):
+def check_cache(session, city, neighbourhood_group, persona):
     try:
         result = session.sql(f"""
             SELECT AI_NARRATIVE
@@ -83,7 +84,6 @@ def check_cache(session, city, neighbourhood_group, persona, structure_class):
             WHERE CITY = '{city}'
             AND NEIGHBOURHOOD_GROUP = '{neighbourhood_group}'
             AND PERSONA = '{persona}'
-            AND STRUCTURE_CLASS = '{structure_class}'
             LIMIT 1
         """).to_pandas()
 
@@ -97,19 +97,19 @@ def check_cache(session, city, neighbourhood_group, persona, structure_class):
 
 
 def write_to_cache(session, city, neighbourhood_group, persona,
-                   structure_class, narrative, neighbourhood_count):
+                   narrative, neighbourhood_count):
     # Parameterized INSERT (bind variables) — needs only INSERT privilege on the
     # pre-created table, avoiding the CREATE TABLE / temp-stage rights that
     # write_pandas requires. Binds also make the JSON narrative injection-safe.
     insert_sql = f"""
         INSERT INTO {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE}
-            (CITY, NEIGHBOURHOOD_GROUP, PERSONA, STRUCTURE_CLASS,
+            (CITY, NEIGHBOURHOOD_GROUP, PERSONA,
              NEIGHBOURHOOD_COUNT, AI_NARRATIVE,
              MODEL_USED, PROMPT_VERSION, COMPUTED_AT)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
+        SELECT ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
     """
     params = [
-        city, neighbourhood_group, persona, structure_class,
+        city, neighbourhood_group, persona,
         int(neighbourhood_count), narrative,
         MODEL, PROMPT_VERSION,
     ]
@@ -126,57 +126,32 @@ def write_to_cache(session, city, neighbourhood_group, persona,
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_area_strategy(session, city, neighbourhoods, structure_class):
-    """Headline ST vs LT yield row per neighbourhood, from MART_AREA_STRATEGY."""
+def load_area_strategy(session, city, neighbourhoods):
+    """Headline ST vs LT row per neighbourhood, aggregated across all
+    property structures. Uses the same listing-count-weighted math as
+    the Area Comparison page so the AI summary matches the on-page charts."""
     quoted = ','.join(f"'{n}'" for n in neighbourhoods)
 
     df = session.sql(f"""
         SELECT
             NEIGHBOURHOOD,
-            STRUCTURE_CLASS,
-            LISTING_COUNT,
-            LT_ANNUAL_RENT,
-            LT_GROSS_YIELD_PCT,
-            LT_RENT_SOURCE,
-            ST_ANNUAL_REVENUE,
-            ST_GROSS_YIELD_PCT,
-            MEDIAN_SALE_PRICE,
-            ASSUMED_LT_GROSS_YIELD_PCT,
-            YIELD_COMPARABLE
+            SUM(LISTING_COUNT) AS LISTING_COUNT,
+            SUM(ST_ANNUAL_REVENUE * LISTING_COUNT)
+                / NULLIF(SUM(LISTING_COUNT), 0) AS ST_ANNUAL_REVENUE,
+            SUM(LT_ANNUAL_RENT * LISTING_COUNT)
+                / NULLIF(SUM(LISTING_COUNT), 0) AS LT_ANNUAL_RENT,
+            SUM(ST_GROSS_YIELD_PCT * LISTING_COUNT)
+                / NULLIF(SUM(LISTING_COUNT), 0) AS ST_GROSS_YIELD_PCT,
+            SUM(LT_GROSS_YIELD_PCT * LISTING_COUNT)
+                / NULLIF(SUM(LISTING_COUNT), 0) AS LT_GROSS_YIELD_PCT
         FROM {DATABASE}.{GOLD_SCHEMA}.MART_AREA_STRATEGY
         WHERE CITY = '{city}'
         AND NEIGHBOURHOOD IN ({quoted})
-        AND STRUCTURE_CLASS = '{structure_class}'
-    """).to_pandas()
-
-    df.columns = df.columns.str.lower()
-    return df
-
-
-def load_area_strategy_bedrooms(session, city, neighbourhoods, structure_class):
-    """Bedroom-level breakdown per neighbourhood, from
-    MART_AREA_STRATEGY_BEDROOMS. Used to surface which bedroom size
-    drives the ST vs LT gap in each area."""
-    quoted = ','.join(f"'{n}'" for n in neighbourhoods)
-
-    df = session.sql(f"""
-        SELECT
-            NEIGHBOURHOOD,
-            STRUCTURE_CLASS,
-            BEDROOM_BUCKET,
-            BEDROOM_SORT,
-            LISTING_COUNT,
-            LT_ANNUAL_RENT,
-            LT_GROSS_YIELD_PCT,
-            ST_ANNUAL_REVENUE,
-            ST_GROSS_YIELD_PCT,
-            MEDIAN_SALE_PRICE,
-            YIELD_COMPARABLE
-        FROM {DATABASE}.{GOLD_SCHEMA}.MART_AREA_STRATEGY_BEDROOMS
-        WHERE CITY = '{city}'
-        AND NEIGHBOURHOOD IN ({quoted})
-        AND STRUCTURE_CLASS = '{structure_class}'
-        ORDER BY NEIGHBOURHOOD, BEDROOM_SORT
+        AND YIELD_COMPARABLE = TRUE
+        AND ST_ANNUAL_REVENUE IS NOT NULL
+        AND LT_ANNUAL_RENT IS NOT NULL
+        AND LISTING_COUNT > 0
+        GROUP BY NEIGHBOURHOOD
     """).to_pandas()
 
     df.columns = df.columns.str.lower()
@@ -251,7 +226,6 @@ def summarise_seasonality(seasonal_df):
 # ---------------------------------------------------------------------------
 
 def format_area_block(row, seasonality):
-    lt_source = row.get('lt_rent_source', 'observed')
     seasonal_info = seasonality.get(row['neighbourhood'], {})
     season_avg = seasonal_info.get('season_avg', {})
 
@@ -267,12 +241,9 @@ def format_area_block(row, seasonality):
         f"  Short-term gross yield: "
         f"{float(row['st_gross_yield_pct']):.1f}%\n"
         f"  Long-term annual rent: "
-        f"£{float(row['lt_annual_rent']):,.0f} "
-        f"({lt_source} figure)\n"
+        f"£{float(row['lt_annual_rent']):,.0f}\n"
         f"  Long-term gross yield: "
         f"{float(row['lt_gross_yield_pct']):.1f}%\n"
-        f"  Median sale price: "
-        f"£{float(row['median_sale_price']):,.0f}\n"
         f"  Active listings sampled: {int(row['listing_count'])}\n"
         f"  Seasonal occupancy by season: {season_text}\n"
         f"  Peak season: {seasonal_info.get('peak_season', 'N/A')}, "
@@ -280,24 +251,7 @@ def format_area_block(row, seasonality):
     )
 
 
-def format_bedroom_block(neighbourhood, bedroom_df):
-    rows = bedroom_df[bedroom_df['neighbourhood'] == neighbourhood]
-    if rows.empty:
-        return f"  No bedroom-level breakdown available for {neighbourhood}."
-
-    lines = [f"  Bedroom breakdown for {neighbourhood}:"]
-    for _, r in rows.iterrows():
-        lines.append(
-            f"    {r['bedroom_bucket']}: ST yield "
-            f"{float(r['st_gross_yield_pct']):.1f}% vs LT yield "
-            f"{float(r['lt_gross_yield_pct']):.1f}% "
-            f"({int(r['listing_count'])} listings)"
-        )
-    return '\n'.join(lines)
-
-
-def build_prompt(city, neighbourhoods, persona, structure_class,
-                 area_df, bedroom_df, seasonality):
+def build_prompt(city, neighbourhoods, persona, area_df, seasonality):
     persona_info = PERSONAS[persona]
 
     area_blocks = '\n\n'.join([
@@ -305,18 +259,13 @@ def build_prompt(city, neighbourhoods, persona, structure_class,
         for _, row in area_df.iterrows()
     ])
 
-    bedroom_blocks = '\n\n'.join([
-        format_bedroom_block(n, bedroom_df)
-        for n in area_df['neighbourhood']
-    ])
-
     system_prompt = f"""You are an expert property investment analyst \
 advising a {persona_info['label']} who prioritises \
 {persona_info['focus']}.
 
 You are comparing short-term (Airbnb) versus long-term rental \
-strategy across {len(neighbourhoods)} neighbourhoods in {city}, \
-for {structure_class} properties: {', '.join(neighbourhoods)}.
+strategy across {len(neighbourhoods)} neighbourhoods in {city} \
+(across all property types): {', '.join(neighbourhoods)}.
 
 CRITICAL PERSONA RULES:
 - YIELD_MAXIMISER: lead with the ST vs LT annual income and gross \
@@ -328,10 +277,6 @@ against short-term seasonal swings. Name peak and trough seasons.
 - QUALITY_HOST: lead with operational sustainability — how much \
 seasonal turnover the short-term strategy implies, and whether \
 that trade-off is worth it versus the lower-effort long-term option.
-
-Use the bedroom-level breakdown to note if the ST vs LT gap is \
-driven by a specific bedroom size rather than being uniform across \
-the neighbourhood.
 
 Interpret seasonal occupancy data in terms of seasons (Winter, \
 Spring, Summer, Autumn), not individual months — never name an \
@@ -368,9 +313,6 @@ seasons for the relevant neighbourhood(s), then explicitly judging \
 whether that seasonal pattern actually serves this persona's \
 primary metric — following the mandatory cross-reference rule \
 above, with numbers",
-  "bedroom_insight": "one sentence on whether a specific bedroom \
-size drives the ST vs LT gap in any of these neighbourhoods, or \
-whether the gap is consistent across bedroom sizes",
   "what_to_avoid": "one specific risk or red flag a \
 {persona_info['label']} should watch for when choosing between \
 these neighbourhoods"
@@ -378,15 +320,11 @@ these neighbourhoods"
 
     user_prompt = f"""
 City: {city}
-Structure class: {structure_class}
 Persona: {persona_info['label']}
 Neighbourhoods compared: {', '.join(neighbourhoods)}
 
-AREA-LEVEL ST VS LT DATA:
+AREA-LEVEL ST VS LT DATA (all property types):
 {area_blocks}
-
-BEDROOM-LEVEL BREAKDOWN:
-{bedroom_blocks}
 """
     return system_prompt, user_prompt
 
@@ -426,7 +364,7 @@ def parse_response(ai_response):
 # ---------------------------------------------------------------------------
 
 def get_or_generate_comparison(session, api_key, city, neighbourhoods,
-                                persona, structure_class):
+                                persona):
     """
     Check cache for an existing ST vs LT comparison narrative across up
     to 3 starred neighbourhoods; generate and cache one if absent.
@@ -441,7 +379,6 @@ def get_or_generate_comparison(session, api_key, city, neighbourhoods,
                       e.g. ['Ashley', 'Clifton', 'Redland']
     persona         : 'YIELD_MAXIMISER' | 'OCCUPANCY_OPTIMISER' |
                       'QUALITY_HOST'
-    structure_class : 'Flat' | 'House' | 'Other'
     """
     if not neighbourhoods or len(neighbourhoods) < 2:
         return None
@@ -449,34 +386,24 @@ def get_or_generate_comparison(session, api_key, city, neighbourhoods,
     neighbourhood_group = make_cache_key(neighbourhoods)
 
     # Step 1: Check cache
-    cached = check_cache(
-        session, city, neighbourhood_group, persona, structure_class
-    )
+    cached = check_cache(session, city, neighbourhood_group, persona)
     if cached:
         return cached
 
-    # Step 2: Load area-level ST vs LT data
-    area_df = load_area_strategy(
-        session, city, neighbourhoods, structure_class
-    )
+    # Step 2: Load area-level ST vs LT data (all structures aggregated)
+    area_df = load_area_strategy(session, city, neighbourhoods)
 
     # Need a row for every starred neighbourhood for a fair comparison
     if len(area_df) < len(neighbourhoods):
         return None
 
-    # Step 3: Load bedroom-level breakdown and seasonal data
-    bedroom_df  = load_area_strategy_bedrooms(
-        session, city, neighbourhoods, structure_class
-    )
-    seasonal_df = load_area_seasonal(
-        session, city, neighbourhoods
-    )
+    # Step 3: Load seasonal data
+    seasonal_df = load_area_seasonal(session, city, neighbourhoods)
     seasonality = summarise_seasonality(seasonal_df)
 
     # Step 4: Build prompt and call Gemini
     system_prompt, user_prompt = build_prompt(
-        city, neighbourhoods, persona, structure_class,
-        area_df, bedroom_df, seasonality
+        city, neighbourhoods, persona, area_df, seasonality
     )
 
     ai_response = call_gemini(api_key, system_prompt, user_prompt)
@@ -490,7 +417,7 @@ def get_or_generate_comparison(session, api_key, city, neighbourhoods,
     # the narrative is already generated — so log and continue.
     try:
         write_to_cache(
-            session, city, neighbourhood_group, persona, structure_class,
+            session, city, neighbourhood_group, persona,
             narrative, len(neighbourhoods)
         )
     except Exception as e:
