@@ -93,16 +93,13 @@ STEPS = [
         "produces": [
             "GOLD.MART_PROPERTY_TYPE",
             "GOLD.MART_BEDROOMS",
-            "GOLD.MART_PROPERTY_GROUP",
+            "GOLD.MART_PROPERTY_SEASONAL",
         ],
     },
     {
         "sql": SQL_DIR / "05_app_marts_strategy.sql",
         "produces": [
-            "GOLD.MART_AREA_STRATEGY",
-            "GOLD.MART_AREA_STRATEGY_BEDROOMS",
-            "GOLD.MART_ST_VS_LT_PROPERTY_TYPE",
-            "GOLD.MART_ST_VS_LT_BEDROOMS",
+            "GOLD.MART_ST_VS_LT",
         ],
     },
     {
