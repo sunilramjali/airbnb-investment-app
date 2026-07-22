@@ -73,12 +73,15 @@ SELECT
     GEO_POINT,
     PRICE                                              AS ADR,
     ESTIMATED_OCCUPANCY_L365D                          AS OCCUPANCY_NIGHTS,
+    (ESTIMATED_OCCUPANCY_L365D >= 30)                  AS IS_ACTIVE,
     ROUND(ESTIMATED_OCCUPANCY_L365D / 365.0, 4)        AS OCCUPANCY_RATE,
     ESTIMATED_REVENUE_L365D                            AS ANNUAL_REVENUE,
     ROUND(ESTIMATED_REVENUE_L365D / 365.0, 2)          AS REVPAR,
     REVIEW_SCORES_RATING,
     NUMBER_OF_REVIEWS
 FROM GOLD.DIM_LISTING;
+
+COMMENT ON COLUMN GOLD.FCT_LISTING_SNAPSHOT.IS_ACTIVE IS 'TRUE if OCCUPANCY_NIGHTS (estimated booked nights, L365D) >= 30. The single conformed active-listing definition; marts read this flag rather than re-deriving the >=30 threshold.';
 
 -- ------------------------------------------------------------
 -- FCT_LISTING_POI — proximity features (bounded 500m spatial join).
