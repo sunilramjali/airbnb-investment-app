@@ -291,6 +291,110 @@ LEFT JOIN GOLD.FCT_AREA_SALE_PRICE c
            WHEN s.PROPERTY_GROUP = 'House'            THEN 'House'
        END;
 
+
+-- ============================================================
+-- MART_PROPERTY_SEASONAL — grain: NEIGHBOURHOOD x STRUCTURE_CLASS x
+-- BEDROOM_BUCKET x MONTH (1-12).
+-- Property page seasonal occupancy chart: for a chosen area, plot the
+-- monthly occupancy curve for Flat vs House, with an optional drill into
+-- bedroom count. Serves ONE graph, so both views live in one mart:
+--   * BEDROOM_BUCKET = 'All'  -> structure-level line (Flat vs House),
+--                                bedrooms ignored (incl. studio/unknown).
+--   * BEDROOM_BUCKET 1/2/3/4+ -> bedroom drill-down (BEDROOMS >= 1 only).
+--
+-- BASIS: active (IS_ACTIVE), entire-home, Flat/House listings only — the
+-- same like-for-like universe as MART_PROPERTY_TYPE / MART_BEDROOMS.
+-- Inactive listings are DELIBERATELY EXCLUDED: they are mostly dormant
+-- (host-blocked / delisted) calendars, and because a booked night is only
+-- proxied as AVAILABLE = FALSE, their blocked nights masquerade as bookings
+-- and would inflate + distort the seasonal curve.
+--
+-- METRIC: OCCUPANCY_RATE = BOOKED_NIGHTS / TOTAL_NIGHTS per cell, where a
+-- booked night is AVAILABLE = FALSE in the calendar (the calendar carries no
+-- booked-vs-blocked flag). Occupancy-only by design, matching
+-- MART_AREA_SEASONAL (no monthly price exists in the scrape).
+--
+-- MONTH grain collapses the year (scrape spans ~13 months; boundary month
+-- observed across two partial years) — fine for a seasonality shape, not a
+-- same-year comparison. Bedroom x month cells are sparse, so SUFFICIENT_SAMPLE
+-- flags thin cells (< 5 listings) rather than hiding them.
+-- ============================================================
+CREATE OR REPLACE DYNAMIC TABLE GOLD.MART_PROPERTY_SEASONAL
+    TARGET_LAG = '1 day'
+    WAREHOUSE  = AIRBNB_APP_WH
+    COMMENT    = 'App-ready property seasonal occupancy trend per neighbourhood x structure_class (Flat/House) x bedroom bucket x month (1-12): booked/total nights and occupancy rate from calendar availability, active entire-home only. BEDROOM_BUCKET = ''All'' is the structure-level line; 1/2/3/4+ are the bedroom drill-down. Occupancy-only (no monthly price exists). Inactive listings excluded (blocked calendars would inflate occupancy).'
+AS
+WITH base AS (
+    SELECT
+        m.NEIGHBOURHOOD,
+        n.CITY,
+        m.STRUCTURE_CLASS,
+        m.BEDROOMS,
+        c.LISTING_ID,
+        c.CALENDAR_DATE,
+        c.AVAILABLE
+    FROM GOLD.FCT_CALENDAR_DAILY c
+    JOIN GOLD.MART_LISTING_CANDIDATES m
+        ON m.LISTING_ID = c.LISTING_ID
+    JOIN GOLD.DIM_NEIGHBOURHOOD n
+        ON n.NEIGHBOURHOOD = m.NEIGHBOURHOOD
+    WHERE m.STRUCTURE_CLASS IN ('Flat', 'House')          -- purchasable dwellings only
+      AND m.ROOM_TYPE = 'Entire home/apt'                 -- whole property
+      AND m.IS_ACTIVE                                     -- active only (blocked calendars excluded)
+),
+-- 'All' rollup: structure-level line, bedrooms ignored (incl. studio/unknown).
+all_beds AS (
+    SELECT
+        NEIGHBOURHOOD,
+        CITY,
+        STRUCTURE_CLASS,
+        'All'                                        AS BEDROOM_BUCKET,
+        -1                                           AS BEDROOM_SORT,
+        MONTH(CALENDAR_DATE)                         AS MONTH,
+        COUNT(DISTINCT LISTING_ID)                   AS LISTING_COUNT,
+        COUNT(*)                                     AS TOTAL_NIGHTS,
+        COUNT(CASE WHEN AVAILABLE = FALSE THEN 1 END) AS BOOKED_NIGHTS
+    FROM base
+    GROUP BY NEIGHBOURHOOD, CITY, STRUCTURE_CLASS, MONTH(CALENDAR_DATE)
+),
+-- Bedroom drill-down: buckets 1/2/3/4+ (drop studio 0 and unknown NULL).
+by_beds AS (
+    SELECT
+        NEIGHBOURHOOD,
+        CITY,
+        STRUCTURE_CLASS,
+        CASE WHEN BEDROOMS >= 4 THEN '4+' ELSE BEDROOMS::STRING END AS BEDROOM_BUCKET,
+        LEAST(BEDROOMS, 4)                           AS BEDROOM_SORT,
+        MONTH(CALENDAR_DATE)                         AS MONTH,
+        COUNT(DISTINCT LISTING_ID)                   AS LISTING_COUNT,
+        COUNT(*)                                     AS TOTAL_NIGHTS,
+        COUNT(CASE WHEN AVAILABLE = FALSE THEN 1 END) AS BOOKED_NIGHTS
+    FROM base
+    WHERE BEDROOMS >= 1
+    GROUP BY NEIGHBOURHOOD, CITY, STRUCTURE_CLASS,
+             CASE WHEN BEDROOMS >= 4 THEN '4+' ELSE BEDROOMS::STRING END,
+             LEAST(BEDROOMS, 4),
+             MONTH(CALENDAR_DATE)
+),
+unioned AS (
+    SELECT * FROM all_beds
+    UNION ALL
+    SELECT * FROM by_beds
+)
+SELECT
+    NEIGHBOURHOOD,
+    CITY,
+    STRUCTURE_CLASS,
+    BEDROOM_BUCKET,
+    BEDROOM_SORT,
+    MONTH,
+    LISTING_COUNT,
+    TOTAL_NIGHTS,
+    BOOKED_NIGHTS,
+    ROUND(BOOKED_NIGHTS / NULLIF(TOTAL_NIGHTS, 0), 4)  AS OCCUPANCY_RATE,
+    (LISTING_COUNT >= 5)                               AS SUFFICIENT_SAMPLE
+FROM unioned;
+
 -- ============================================================
 -- COLUMN COMMENTS
 -- ------------------------------------------------------------
@@ -323,4 +427,17 @@ COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_AVG_OCCUPANCY_RATE IS 'All-areas 
 COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.ALL_AVG_ANNUAL_REVENUE IS 'All-areas group mean annual revenue.';
 COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.MEDIAN_SALE_PRICE IS 'Land Registry median sale price where the group maps to Flat/House (else NULL).';
 COMMENT ON COLUMN GOLD.MART_PROPERTY_GROUP.SALE_TXN_COUNT IS 'Number of sale transactions behind MEDIAN_SALE_PRICE.';
+
+-- ---- MART_PROPERTY_SEASONAL ----
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.NEIGHBOURHOOD IS 'Area name; grain key. Read with WHERE NEIGHBOURHOOD = ...';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.CITY IS 'City of the neighbourhood (Greater Manchester / Bristol / London).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.STRUCTURE_CLASS IS 'Dwelling type: Flat or House. Active entire-home listings only.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.BEDROOM_BUCKET IS '''All'' = structure-level line (bedrooms ignored, incl. studio/unknown); ''1''/''2''/''3''/''4+'' = bedroom drill-down (BEDROOMS >= 1). Filter to one value per chart series.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.BEDROOM_SORT IS 'Numeric sort helper: -1 for the ''All'' rollup, else LEAST(BEDROOMS, 4). Order by this for a natural bucket sequence.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.MONTH IS 'Calendar month 1-12 (x-axis of the seasonality chart). Collapses the ~13-month scrape window; a seasonal shape, not a same-year comparison.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.LISTING_COUNT IS 'Distinct listings contributing calendar nights to this cell.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.TOTAL_NIGHTS IS 'Total listing-nights in the calendar for this cell (denominator of OCCUPANCY_RATE).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.BOOKED_NIGHTS IS 'Listing-nights where AVAILABLE = FALSE. Proxy for booked (calendar has no booked-vs-blocked flag).';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.OCCUPANCY_RATE IS 'BOOKED_NIGHTS / TOTAL_NIGHTS (0..1). The seasonal occupancy metric; active-only so blocked dormant calendars do not inflate it.';
+COMMENT ON COLUMN GOLD.MART_PROPERTY_SEASONAL.SUFFICIENT_SAMPLE IS 'TRUE if LISTING_COUNT >= 5. Bedroom x month cells are sparse; use to grey out / caveat thin cells.';
 
