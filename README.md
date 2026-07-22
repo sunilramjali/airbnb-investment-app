@@ -309,6 +309,7 @@ directly. It lives in `etl/aggregation_layer/` and is driven by a single Python 
    ALTER TABLE SILVER.NEIGHBOURHOODS_GEO_CLEANED SET CHANGE_TRACKING = TRUE;
    ALTER TABLE SILVER.ONS_PRIVATE_RENT_CLEANED   SET CHANGE_TRACKING = TRUE;
    ALTER TABLE SILVER.NEIGHBOURHOOD_ONS_AREA_MAP SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.LISTING_AMENITIES          SET CHANGE_TRACKING = TRUE;
    ```
 
 ### How to run
@@ -318,7 +319,10 @@ uses `get_active_session()` (no credentials) on `AIRBNB_APP_WH` and executes, in
 
 1. `01_dimensions.sql` — conformed dimensions + generated `DIM_DATE`.
 2. `02_facts.sql` — facts at listing / listing×date grain.
-3. `03_app_marts.sql` — the app-facing consumer marts.
+3. `03_app_marts_core.sql` — core app-facing consumer marts (area overview, listings, POI, seasonal).
+4. `04_app_marts_property.sql` — property drill-down marts (type, bedrooms, seasonal by property).
+5. `05_app_marts_strategy.sql` — ST-vs-LT yield comparison mart.
+6. `06_app_marts_amenities.sql` — amenity coverage and gap analysis marts.
 
 It prints a `COUNT(*)` for every object it builds.
 
@@ -331,6 +335,7 @@ AIRBNB_INVESTMENT_DB.GOLD
 ├── DIM_NEIGHBOURHOOD      # one row per neighbourhood (+ CITY, BOUNDARY geography, AREA_SQKM)
 ├── DIM_PROPERTY_GROUP     # the 7 property groups (selection lookup)
 ├── DIM_POI                # points of interest (+ LOCATION geography)
+├── DIM_CITY_ASSUMPTIONS   # per-city regulatory/yield assumptions (e.g. ST night cap, LT yield %)
 ├── DIM_DATE               # generated calendar dimension (static table)
 ├── FCT_LISTING_SNAPSHOT   # per-listing investment metrics (ADR, occupancy, revenue, RevPAR)
 ├── FCT_CALENDAR_DAILY     # daily availability per listing (listing × date)
@@ -338,12 +343,16 @@ AIRBNB_INVESTMENT_DB.GOLD
 ├── FCT_AREA_SALE_PRICE    # median/avg sale price per neighbourhood × structure_class (HM Land Registry)
 ├── FCT_AREA_RENT          # observed ONS rent per neighbourhood × category (overall/structure/bedroom)
 │
-├── MART_LISTING_CANDIDATES # APP: denormalised per-listing (detail + comparison screens)
-├── MART_AREA_OVERVIEW      # APP: per-neighbourhood summary + map boundary (area overview)
-├── MART_PROPERTY_GROUP     # APP: neighbourhood × property group (+ median sale-price cost)
-├── MART_AREA_POI           # APP: per-POI map markers inside each neighbourhood
-├── MART_AREA_STRATEGY      # APP: ST (Airbnb) vs LT (let) gross-yield per neighbourhood × structure_class
-└── MART_AREA_STRATEGY_BEDROOMS # APP: the same ST-vs-LT comparison, faceted by bedroom bucket
+├── MART_LISTING_CANDIDATES   # APP: denormalised per-listing (detail + comparison screens)
+├── MART_AREA_OVERVIEW        # APP: per-neighbourhood summary + map boundary (area overview)
+├── MART_AREA_POI             # APP: per-POI map markers inside each neighbourhood
+├── MART_AREA_SEASONAL        # APP: monthly seasonality per neighbourhood (occupancy/price trends)
+├── MART_PROPERTY_TYPE        # APP: neighbourhood × structure_class (Flat/House) KPIs + buy price
+├── MART_BEDROOMS             # APP: neighbourhood × structure × bedroom_bucket KPIs
+├── MART_PROPERTY_SEASONAL    # APP: monthly seasonality faceted by property type + bedrooms
+├── MART_ST_VS_LT             # APP: ST (Airbnb) vs LT (let) gross-yield per area × structure × bedrooms
+├── MART_AREA_AMENITIES       # APP: amenity group coverage per neighbourhood (% listings with group)
+└── MART_AREA_AMENITY_GAP     # APP: amenity gap analysis (areas underserved in key amenity groups)
 ```
 
 ### How the app consumes it
@@ -354,10 +363,11 @@ query-time joins** — the marts are already denormalised, one per screen:
 | Screen | Mart |
 |--------|------|
 | Home (KPIs + maximiser leaderboards) | `MART_AREA_OVERVIEW` + `MART_LISTING_CANDIDATES` |
-| Area Overview (stats + map) | `MART_AREA_OVERVIEW` + `MART_AREA_POI` (map markers) |
-| Property selection (per group + cost) | `MART_PROPERTY_GROUP` |
+| Area Overview (stats + map) | `MART_AREA_OVERVIEW` + `MART_AREA_POI` + `MART_AREA_SEASONAL` |
+| Area Comparison (amenities) | `MART_AREA_AMENITIES` + `MART_AREA_AMENITY_GAP` |
+| Property Types (Flat vs House) | `MART_PROPERTY_TYPE` + `MART_BEDROOMS` + `MART_PROPERTY_SEASONAL` |
 | Listing Comparison | `MART_LISTING_CANDIDATES` |
-| Area Strategy (ST vs LT yield, incl. by bedroom) | `MART_AREA_STRATEGY` + `MART_AREA_STRATEGY_BEDROOMS` |
+| Area Strategy (ST vs LT yield) | `MART_ST_VS_LT` |
 
 Three usage notes:
 - **`HAS_REVENUE_DATA`** — 34% of listings have no `price`/revenue in the source scrape.
@@ -365,13 +375,13 @@ Three usage notes:
   rest visible without fabricating numbers.
 - **Cost benchmark** — `AREA_MEDIAN_SALE_PRICE` (listing) and `MEDIAN_SALE_PRICE` (area)
   come from HM Land Registry, matched by neighbourhood × Flat/House.
-- **Long-term rent (ONS)** — `MART_AREA_STRATEGY(_BEDROOMS)` now compare short-term (Airbnb)
-  vs long-term (let) **gross yield** using *observed* ONS rents (`GOLD.FCT_AREA_RENT`), not a
-  flat per-city assumption. `LT_GROSS_YIELD_PCT = ONS annual rent / median sale price`, and
-  `LT_RENT_SOURCE` flags each row `observed` or `assumed` (the per-city assumption is the
-  documented fallback where ONS has no figure — e.g. City of London, or Studio/Unknown bedroom
-  buckets). ONS is local-authority grain, so `FCT_AREA_RENT.RENT_GRAIN` marks whether a rent is
-  `exact` (London borough / GM district) or `broadcast` (shared across Manchester/Bristol wards).
+- **Long-term rent (ONS)** — `MART_ST_VS_LT` compares short-term (Airbnb) vs long-term (let)
+  **gross yield** using *observed* ONS rents (`GOLD.FCT_AREA_RENT`), not a flat per-city
+  assumption. `LT_GROSS_YIELD_PCT = ONS annual rent / median sale price`, and `LT_RENT_SOURCE`
+  flags each row `observed` or `assumed` (the per-city assumption is the documented fallback
+  where ONS has no figure — e.g. City of London, or Studio/Unknown bedroom buckets). ONS is
+  local-authority grain, so `FCT_AREA_RENT.RENT_GRAIN` marks whether a rent is `exact` (London
+  borough / GM district) or `broadcast` (shared across Manchester/Bristol wards).
 
 ### Refresh model
 
@@ -383,7 +393,9 @@ explicit `TARGET_LAG = '1 day'` freshness anchor; the upstream **dims/facts** us
 ### Adding a new gold object
 
 1. Add the `CREATE OR REPLACE DYNAMIC TABLE ...` to the relevant SQL file
-   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts.sql`).
+   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts_core.sql` /
+   `04_app_marts_property.sql` / `05_app_marts_strategy.sql` / `06_app_marts_amenities.sql`),
+   or create a new numbered file if it's a distinct domain.
 2. Add its fully-qualified name to that step's `produces` list in `aggregation_layer.py`
    so the runner verifies its row count.
 

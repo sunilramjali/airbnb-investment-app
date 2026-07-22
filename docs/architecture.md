@@ -7,14 +7,10 @@ big picture, then dive into the linked docs for details.
 - New to `src/`? → [what_is_src.md](what_is_src.md)
 - How we use Git/branches? → [branching_strategy.md](branching_strategy.md)
 
-> **Status:** This describes the *target* structure we are building toward. Some folders
-> (`src/`, `tests/`, `app/`, the numbered notebook folders) may not exist yet — they are
-> created as each part of the project is built.
->
 > **Runtime reality:** the project runs **inside Snowflake** (Snowpark
 > `get_active_session()`). Data lives in Snowflake **schemas** (BRONZE / SILVER / GOLD), not a
-> local `data/` folder, and there is no `.venv` / `requirements.txt` (see README "Where This
-> Runs"). The ingestion layer is built today under `config/` + `etl/`, not `src/`.
+> local `data/` folder, and there is no `.venv` / `requirements.txt` for the pipeline (see
+> README "Where This Runs"). The reusable logic lives in `config/` + `etl/`, not a `src/` folder.
 
 ---
 
@@ -44,9 +40,9 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
-| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP` |
-| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `MART_LISTING_CANDIDATES`, `MART_AREA_OVERVIEW`, `MART_PROPERTY_GROUP`, `MART_AREA_POI` |
+| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT`, `RAW_ONS_PRIVATE_RENT` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP`, `LISTING_AMENITIES`, `POSTCODE_NEIGHBOURHOOD_MAP`, `ONS_PRIVATE_RENT_CLEANED`, `NEIGHBOURHOOD_ONS_AREA_MAP` |
+| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_CITY_ASSUMPTIONS`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `FCT_AREA_SALE_PRICE`, `FCT_AREA_RENT`, `MART_LISTING_CANDIDATES`, `MART_AREA_OVERVIEW`, `MART_AREA_POI`, `MART_AREA_SEASONAL`, `MART_PROPERTY_TYPE`, `MART_BEDROOMS`, `MART_PROPERTY_SEASONAL`, `MART_ST_VS_LT`, `MART_AREA_AMENITIES`, `MART_AREA_AMENITY_GAP` |
 
 ---
 
@@ -82,40 +78,49 @@ every metric, with all the expensive work pushed to refresh time so reads stay c
 airbnb-investment-app/
 ├── README.md            # main project guide (start here)
 │
-├── config/              # shared helpers (EXISTS)
+├── config/              # shared helpers
 │   ├── snowflake_context.py   # session + warehouse helpers
 │   ├── run_sql_file.py        # client-side SQL runner
 │   └── ingestion_manifest.py  # declarative list of Bronze datasets
 │
-├── setup/               # one-time DB/warehouse/integration setup (EXISTS)
+├── setup/               # one-time DB/warehouse/integration setup
 │   ├── run_setup.py
 │   ├── 00_setup_api_integration.sql
-│   └── 01_setup_database_and_warehouse.sql
+│   ├── 01_setup_database_and_warehouse.sql
+│   └── 02_public_service_user.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze + Silver + Gold EXIST)
+├── etl/                 # the pipeline, by layer (Bronze + Silver + Gold)
 │   ├── ingestion_layer/
 │   │   ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
 │   │   ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
 │   │   ├── 03_land_registry_ddl.sql    # Land Registry headerless format + stage (run once)
 │   │   ├── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
 │   │   ├── 05_overture_poi_load.sql    # Overture Places POIs (Marketplace share; scoped to boroughs)
-│   │   └── 06_code_point_load.sql      # OS Code-Point Open postcodes (Marketplace share; full GB copy)
+│   │   ├── 06_code_point_load.sql      # OS Code-Point Open postcodes (Marketplace share; full GB copy)
+│   │   ├── 07_ons_private_rent_ddl.sql # ONS Private Rents stage + openpyxl parse proc (run once)
+│   │   └── 08_ons_private_rent_load.sql# ONS Private Rents table + CALL parse (run each load)
 │   ├── cleaning_layer/                 # Silver transforms, driven by cleaning_layer.py
 │   │   ├── 01_silver_ddl.sql           # SILVER schema + CLEAN_AUDIT
-│   │   ├── 02..07_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid
-│   │   ├── 08_silver_poi.sql           # Overture POIs -> investment-relevant amenities
-│   │   ├── 09_silver_code_point.sql    # postcodes -> normalized POSTCODE_KEY reference
-│   │   └── 10_silver_property_group_map.sql  # property_type -> property_group lookup
+│   │   ├── 02..10_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid, POI, code_point, property_group_map
+│   │   ├── 11_silver_amenities.sql     # exploded listing × amenity, classified into AMENITY_GROUPs
+│   │   ├── 12_silver_postcode_neighbourhood_map.sql  # postcode -> neighbourhood spatial bridge
+│   │   ├── 13_silver_ons_private_rent.sql            # ONS private rent panel (tidy-long)
+│   │   └── 14_silver_neighbourhood_ons_area_map.sql  # neighbourhood -> ONS area crosswalk
 │   └── aggregation_layer/              # Gold star + app marts, driven by aggregation_layer.py
-│       ├── 01_dimensions.sql           # DIM_* conformed dimensions + generated DIM_DATE
-│       ├── 02_facts.sql                # FCT_* at listing / listing x date grain
-│       └── 03_app_marts.sql            # MART_* denormalised consumer layer (app reads these)
+│       ├── 01_dimensions.sql           # DIM_* conformed dimensions + DIM_CITY_ASSUMPTIONS + DIM_DATE
+│       ├── 02_facts.sql                # FCT_* at listing / listing×date / area grain
+│       ├── 03_app_marts_core.sql       # MART_LISTING_CANDIDATES, MART_AREA_OVERVIEW, MART_AREA_POI, MART_AREA_SEASONAL
+│       ├── 04_app_marts_property.sql   # MART_PROPERTY_TYPE, MART_BEDROOMS, MART_PROPERTY_SEASONAL
+│       ├── 05_app_marts_strategy.sql   # MART_ST_VS_LT (ST vs LT yield comparison)
+│       └── 06_app_marts_amenities.sql  # MART_AREA_AMENITIES, MART_AREA_AMENITY_GAP
 │
-├── notebooks/ (later)  # exploration + running the pipeline
-│   └── preprocessing_layer.ipynb  (planned)
+├── scripts/             # offline / local scripts
+│   └── ai/              # AI narrative & recommendation generation (Gemini)
 │
-├── app/  (later)        # Streamlit app (reads GOLD schema only)
-├── tests/ (later)       # validation of data & loader behaviour
+├── notebooks/           # exploration + running the pipeline
+│
+├── Streamlit/           # the Streamlit app (reads GOLD schema only)
+│   └── airbnb-app/      # multi-page app (landing, area overview, property types, listings, docs)
 │
 └── docs/                # project documentation
     ├── architecture.md      # ← you are here
@@ -135,12 +140,10 @@ airbnb-investment-app/
   folder. See `data_sources.md` for where the raw files came from.
 - **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
 - **`setup/`** — one-time database, warehouse, and integration setup.
-- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning + Gold aggregation today).
-- **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
-- **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
-  `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).
-- **`tests/`** *(later)* — automated checks (`pytest`) for loader behaviour and data validity.
-- **`app/`** *(later)* — the Streamlit dashboard users see. It only reads from the GOLD schema.
+- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning + Gold aggregation).
+- **`scripts/`** — offline scripts (AI narrative/recommendation generation via Gemini).
+- **`notebooks/`** — exploration notebooks and pipeline execution.
+- **`Streamlit/`** — the multi-page Streamlit dashboard. It only reads from the GOLD schema.
 - **`docs/`** — guides for the team (this file, the Git workflow, the shared-logic guide).
 
 ---
@@ -152,11 +155,10 @@ these areas:
 
 | Role | Works in | Produces |
 |------|----------|----------|
-| Data Engineer | `etl/` (Bronze loader today), `config/` | bronze → silver → gold tables |
-| Data Analyst | `notebooks/04_analysis/` | EDA, price/location insights, metrics |
-| AI Engineer | `notebooks/`, model code | review sentiment, scoring model |
-| Frontend Dev | `app/` *(later)* | the Streamlit dashboard |
-| QA Tester | `tests/` *(later)* | validation of data & loader behaviour |
+| Data Engineer | `etl/`, `config/` | bronze → silver → gold tables |
+| Data Analyst | `notebooks/` | EDA, price/location insights, metrics |
+| AI Engineer | `scripts/ai/`, `notebooks/` | narratives, recommendations, scoring |
+| Frontend Dev | `Streamlit/airbnb-app/` | the Streamlit dashboard |
 
 This keeps two people from editing the same file at once, which reduces merge conflicts.
 
