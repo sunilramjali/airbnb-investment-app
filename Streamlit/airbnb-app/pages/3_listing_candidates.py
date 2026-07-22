@@ -270,8 +270,11 @@ with page_col4:
     if st.button('Documentation', use_container_width = True):
         st.switch_page('pages/4_Documentation.py')
 
-if "selected_listing_property_group" not in st.session_state:
-    st.session_state["selected_listing_property_group"] = None
+if "selected_listing_structure_class" not in st.session_state:
+    st.session_state["selected_listing_structure_class"] = None
+
+if "selected_listing_bedroom_group" not in st.session_state:
+    st.session_state["selected_listing_bedroom_group"] = None
 
 if "selected_listing_neighbourhood" not in st.session_state:
     st.session_state["selected_listing_neighbourhood"] = None
@@ -299,6 +302,10 @@ def load_listings(_session):
     return _session.sql(
             """
                 SELECT
+                    CASE
+                        WHEN a.BEDROOMS >= 4 THEN '4+'
+                        WHEN a.BEDROOMS IN (1,2,3) THEN CAST(a.BEDROOMS AS VARCHAR)
+                    END AS BEDROOM_GROUP,
                     a.LISTING_ID,
                     a.GEO_POINT,
                     a.INSTANT_BOOKABLE,
@@ -339,9 +346,14 @@ def load_listings(_session):
                 
                 WHERE 
                     a.NEIGHBOURHOOD IS NOT NULL
-                    AND a.PROPERTY_GROUP IS NOT NULL
+                    AND a.BEDROOMS IS NOT NULL
+                    AND (
+                        a.BEDROOMS >= 4
+                        OR a.BEDROOMS IN (1, 2, 3)
+                    )
+                    AND a.STRUCTURE_CLASS IS NOT NULL
                     AND b.CITY IS NOT NULL
-                    AND LOWER(TRIM(a.PROPERTY_GROUP)) != 'other / unknown'
+                    AND LOWER(TRIM(a.STRUCTURE_CLASS)) != 'other / unknown'
                         
         """
     ).to_pandas()
@@ -374,30 +386,33 @@ else:
     cols = st.columns(3)
 
     for i, property_type in enumerate(starred_property_types[:3]):
-
         property_group = property_type["property_group"]
+        structure_class = property_type["structure_class"]
+        bedroom_group = property_type["bedroom_group"]
         neighbourhood_name = property_type["neighbourhood"]
         city_name = property_type["city"]
-
+    
         button_label = f"{property_group}\n{neighbourhood_name}\n{city_name}"
-
+    
         with cols[i]:
             if st.button(
                 label=button_label,
-                key=f"listing_property_type_{i}_{city_name}_{neighbourhood_name}_{property_group}",
+                key=f"listing_property_type_{i}_{city_name}_{neighbourhood_name}_{structure_class}_{bedroom_group}",
                 use_container_width=True
             ):
-                st.session_state["selected_listing_property_group"] = property_group
+                st.session_state["selected_listing_structure_class"] = structure_class
+                st.session_state["selected_listing_bedroom_group"] = bedroom_group
                 st.session_state["selected_listing_neighbourhood"] = neighbourhood_name
                 st.session_state["selected_listing_city"] = city_name
                 st.rerun()
 
-selected_property_group = st.session_state["selected_listing_property_group"]
+selected_structure_class = st.session_state["selected_listing_structure_class"]
+selected_bedroom_group = st.session_state["selected_listing_bedroom_group"]
 selected_neighbourhood = st.session_state["selected_listing_neighbourhood"]
 selected_city = st.session_state["selected_listing_city"]
 persona = st.session_state.get("persona", None)
 
-if selected_property_group is not None:
+if selected_structure_class is not None and selected_bedroom_group is not None:
 
     if persona is None:
         st.warning("No persona has been selected yet.")
@@ -423,7 +438,8 @@ if selected_property_group is not None:
             selected_listing_data = listing_candidates[
                 (listing_candidates["CITY"].astype(str).str.strip().str.lower() == str(selected_city).strip().lower())
                 & (listing_candidates["NEIGHBOURHOOD"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
-                & (listing_candidates["PROPERTY_GROUP"].astype(str).str.strip().str.lower() == str(selected_property_group).strip().lower())
+                & (listing_candidates["STRUCTURE_CLASS"].astype(str).str.strip().str.lower() == str(selected_structure_class).strip().lower())
+                & (listing_candidates["BEDROOM_GROUP"].astype(str).str.strip().str.lower() == str(selected_bedroom_group).strip().lower())
             ].copy()
 
             if selected_listing_data.empty:
@@ -437,7 +453,7 @@ if selected_property_group is not None:
                     ascending=False
                 ).head(10)
                 
-                st.markdown(f"## {selected_property_group}")
+                st.markdown(f"## {selected_structure_class} - {selected_bedroom_group} bedroom")
                 st.caption(f"{selected_neighbourhood}, {selected_city}")
                 st.caption(f"Ranking based on persona: {persona}")
 
@@ -461,7 +477,8 @@ if selected_property_group is not None:
                                 "city": row.CITY,
                                 "neighbourhood": row.NEIGHBOURHOOD,
                                 "property_type": row.PROPERTY_TYPE,
-                                "property_group": row.PROPERTY_GROUP,
+                                "structure_class": row.STRUCTURE_CLASS,
+                                "bedrooms": row.BEDROOM_GROUP,
                                 "picture_url": row.PICTURE_URL,
                                 "listing_url": row.LISTING_URL,
                                 "investment_score": getattr(row, score_column),
@@ -523,7 +540,7 @@ if selected_property_group is not None:
                 
                                 with row_cols[3]:
                                     st.markdown("### Listing Details")
-                                    st.write(f"**Bedrooms:** {row.BEDROOMS:,.0f}" if pd.notna(row.BEDROOMS) else "**Bedrooms:** N/A")
+                                    st.write(f"**Bedrooms:** {row.BEDROOM_GROUP}")
                                     st.write(f"**Bathrooms:** {row.BATHROOMS:,.0f}" if pd.notna(row.BATHROOMS) else "**Bathrooms:** N/A")
                                     st.write(f"**Beds:** {row.BEDS:,.0f}" if pd.notna(row.BEDS) else "**Beds:** N/A")
                                     st.write(f"**Accommodates:** {row.ACCOMMODATES:,.0f}" if pd.notna(row.ACCOMMODATES) else "**Accommodates:** N/A")
@@ -559,6 +576,7 @@ if selected_property_group is not None:
                                     st.write(f"**{item['city']}**")
                                     st.write(f"**{item['neighbourhood']}**")
                                     st.write(f"**{item['property_type']}**")
+                                    st.write(f"**{item['structure_class']} - {item['bedroom_group']} bedroom**")
                 
                                     if "investment_score" in item:
                                         st.caption(f"Investment Score: **{item['investment_score']:,.2f}**")
