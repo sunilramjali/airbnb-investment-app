@@ -65,6 +65,7 @@ STEPS = [
             "GOLD.DIM_NEIGHBOURHOOD",
             "GOLD.DIM_PROPERTY_GROUP",
             "GOLD.DIM_POI",
+            "GOLD.DIM_CITY_ASSUMPTIONS",
             "GOLD.DIM_DATE",
         ],
     },
@@ -79,15 +80,31 @@ STEPS = [
         ],
     },
     {
-        "sql": SQL_DIR / "03_app_marts.sql",
+        "sql": SQL_DIR / "03_app_marts_core.sql",
         "produces": [
             "GOLD.MART_LISTING_CANDIDATES",
             "GOLD.MART_AREA_OVERVIEW",
-            "GOLD.MART_PROPERTY_GROUP",
             "GOLD.MART_AREA_POI",
             "GOLD.MART_AREA_SEASONAL",
-            "GOLD.MART_AREA_STRATEGY",
-            "GOLD.MART_AREA_STRATEGY_BEDROOMS",
+        ],
+    },
+    {
+        "sql": SQL_DIR / "04_app_marts_property.sql",
+        "produces": [
+            "GOLD.MART_PROPERTY_TYPE",
+            "GOLD.MART_BEDROOMS",
+            "GOLD.MART_PROPERTY_SEASONAL",
+        ],
+    },
+    {
+        "sql": SQL_DIR / "05_app_marts_strategy.sql",
+        "produces": [
+            "GOLD.MART_ST_VS_LT",
+        ],
+    },
+    {
+        "sql": SQL_DIR / "06_app_marts_amenities.sql",
+        "produces": [
             "GOLD.MART_AREA_AMENITIES",
             "GOLD.MART_AREA_AMENITY_GAP",
         ],

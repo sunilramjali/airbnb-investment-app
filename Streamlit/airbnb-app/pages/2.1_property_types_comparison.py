@@ -1,0 +1,725 @@
+import streamlit as st
+import pandas as pd
+import altair as alt
+from db import get_session
+
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
+st.markdown(
+    """
+    <style>
+    /* Main app */
+    .stApp {
+        background-color: white !important;
+    }
+
+    [data-testid="stFullScreenFrame"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
+    section[data-testid="stSidebar"] {
+        background-color: white !important;
+        display: none !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Big headings */
+    h1, h2 {
+        color: #f26359 !important;
+    }
+
+    /* Smaller headings */
+    h3, h4, h5, h6 {
+        color: #000000 !important;
+    }
+
+    /* Normal markdown text */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li {
+        color: #000000 !important;
+    }
+
+    /* Captions */
+    [data-testid="stCaptionContainer"] {
+        color: #000000 !important;
+    }
+
+    div[data-testid="stAlert"] {
+        background-color: #FCEDEA !important;
+        color: #7A2E2A !important;
+        border: 1px solid #F26359 !important;
+        border-left: 6px solid #F26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] div {
+        color: #7A2E2A !important;
+    }
+
+    /* Metrics */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
+
+    /* Buttons */
+    div.stButton > button[kind="secondary"] {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+    div.stButton > button[kind="primary"] {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #f8d9d3 !important;
+        border: 2px solid #f26359 !important;
+        border-radius: 12px !important;
+    }
+
+    div.stButton > button p {
+        white-space: pre-line !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
+    }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+     /* Multiselect outer box */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Text typed inside the multiselect */
+    [data-testid="stMultiSelect"] input {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Placeholder text */
+    [data-testid="stMultiSelect"] input::placeholder {
+        color: #7A2E2A !important;
+        opacity: 1 !important;
+    }
+
+    /* Selected option boxes / tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #f26359 !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+    }
+
+    /* Text inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
+
+    /* Remove icon inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    /* Dropdown menu background */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+    }
+
+    /* Dropdown options */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Dropdown option hover */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #f8d9d3 !important;
+        color: #000000 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+page_col1, empty_col = st.columns([1,7])
+with page_col1:
+    if st.button('Back to Property Types Overview', use_container_width = True):
+        st.switch_page('pages/2_property_types.py')
+
+session = get_session()
+
+# FORMAT FUNCTIONS
+def format_money(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"£{value:,.0f}"
+
+
+def format_number(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.0f}"
+
+
+def format_decimal(value, decimals=2):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.{decimals}f}"
+
+
+def format_percent(value):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:,.1f}%"
+
+
+# SESSION STATE
+if "starred_property_types" not in st.session_state:
+    st.session_state["starred_property_types"] = []
+
+starred_property_types = st.session_state["starred_property_types"]
+
+if len(starred_property_types) != 3:
+    st.warning(
+        "Exactly 3 property and bedroom combinations must be starred "
+        "before generating this comparison."
+    )
+    st.stop()
+
+required_starred_fields = [
+    "city",
+    "neighbourhood",
+    "structure_class",
+    "bedroom_group"
+]
+
+if any(
+    field not in item
+    for item in starred_property_types
+    for field in required_starred_fields
+):
+    st.warning(
+        "Your current starred selections were created before structure "
+        "class and bedroom bucket were added. Clear them, return to the "
+        "Property Types page and star the 3 options again."
+    )
+    st.stop()
+
+session = get_session()
+
+# SQL QUERY FOR SHORT-TERM VS LONG-TERM STRATEGY
+@st.cache_data(ttl=300)
+def load_property_strategy(_session):
+    return _session.sql(
+        """
+        SELECT
+            CITY,
+            NEIGHBOURHOOD,
+            STRUCTURE_CLASS,
+            BEDROOM_BUCKET,
+            BEDROOM_SORT,
+            LISTING_COUNT,
+            OCCUPANCY_CAP_NIGHTS,
+            MEDIAN_SALE_PRICE,
+            ST_ANNUAL_INCOME,
+            ST_GROSS_YIELD_PCT,
+            ASSUMED_LT_GROSS_YIELD_PCT,
+            LT_ANNUAL_INCOME,
+            LT_GROSS_YIELD_PCT,
+            LT_RENT_SOURCE,
+            ST_VS_LT_INCOME_UPLIFT,
+            ST_VS_LT_YIELD_UPLIFT_PPT,
+            ST_TO_LT_INCOME_RATIO,
+            ST_WINS,
+            SUFFICIENT_SAMPLE
+        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_ST_VS_LT
+        WHERE
+            CITY IS NOT NULL
+            AND NEIGHBOURHOOD IS NOT NULL
+            AND STRUCTURE_CLASS IS NOT NULL
+            AND BEDROOM_BUCKET IS NOT NULL
+        ORDER BY
+            CITY,
+            NEIGHBOURHOOD,
+            STRUCTURE_CLASS,
+            BEDROOM_SORT
+        """
+    ).to_pandas()
+
+# SQL QUERY FOR PROPERTY-LEVEL SEASONAL OCCUPANCY
+@st.cache_data(ttl=300)
+def load_property_seasonal(_session):
+    return _session.sql(
+        """
+        SELECT
+            CITY,
+            NEIGHBOURHOOD,
+            STRUCTURE_CLASS,
+            BEDROOM_BUCKET,
+            BEDROOM_SORT,
+            MONTH,
+            LISTING_COUNT,
+            TOTAL_NIGHTS,
+            BOOKED_NIGHTS,
+            OCCUPANCY_RATE,
+            SUFFICIENT_SAMPLE
+        FROM AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_SEASONAL
+        WHERE
+            CITY IS NOT NULL
+            AND NEIGHBOURHOOD IS NOT NULL
+            AND STRUCTURE_CLASS IS NOT NULL
+            AND BEDROOM_BUCKET IS NOT NULL
+            AND MONTH IS NOT NULL
+        ORDER BY
+            CITY,
+            NEIGHBOURHOOD,
+            STRUCTURE_CLASS,
+            BEDROOM_SORT,
+            MONTH
+        """
+    ).to_pandas()
+
+property_strategy = load_property_strategy(session)
+property_seasonal = load_property_seasonal(session)
+
+# PREPARE THE 3 STARRED OPTIONS
+selected_properties = pd.DataFrame(starred_property_types[:3]).copy()
+
+for source_column, clean_column in [
+    ("city", "CITY_CLEAN"),
+    ("neighbourhood", "NEIGHBOURHOOD_CLEAN"),
+    ("structure_class", "STRUCTURE_CLASS_CLEAN"),
+    ("bedroom_group", "BEDROOM_BUCKET_CLEAN")
+]:
+    selected_properties[clean_column] = (
+        selected_properties[source_column]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+selected_properties["PROPERTY_LABEL"] = (
+    selected_properties["structure_class"].astype(str)
+    + " — "
+    + selected_properties["bedroom_group"].astype(str)
+    + " bedroom"
+    + "\n"
+    + selected_properties["neighbourhood"].astype(str)
+)
+
+selected_properties["FULL_LABEL"] = (
+    selected_properties["structure_class"].astype(str)
+    + " — "
+    + selected_properties["bedroom_group"].astype(str)
+    + " bedroom, "
+    + selected_properties["neighbourhood"].astype(str)
+    + ", "
+    + selected_properties["city"].astype(str)
+)
+
+# PREPARE MART_ST_VS_LT
+for source_column, clean_column in [
+    ("CITY", "CITY_CLEAN"),
+    ("NEIGHBOURHOOD", "NEIGHBOURHOOD_CLEAN"),
+    ("STRUCTURE_CLASS", "STRUCTURE_CLASS_CLEAN"),
+    ("BEDROOM_BUCKET", "BEDROOM_BUCKET_CLEAN")
+]:
+    property_strategy[clean_column] = (
+        property_strategy[source_column]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+comparison_strategy = selected_properties.merge(
+    property_strategy,
+    on=[
+        "CITY_CLEAN",
+        "NEIGHBOURHOOD_CLEAN",
+        "STRUCTURE_CLASS_CLEAN",
+        "BEDROOM_BUCKET_CLEAN"
+    ],
+    how="left",
+    suffixes=("", "_STRATEGY")
+)
+
+strategy_columns = [
+    "ST_ANNUAL_INCOME",
+    "LT_ANNUAL_INCOME",
+    "ST_GROSS_YIELD_PCT",
+    "LT_GROSS_YIELD_PCT"
+]
+comparison_strategy[strategy_columns] = comparison_strategy[strategy_columns].apply(
+    pd.to_numeric,
+    errors="coerce"
+)
+
+# PREPARE MART_PROPERTY_SEASONAL
+for source_column, clean_column in [
+    ("CITY", "CITY_CLEAN"),
+    ("NEIGHBOURHOOD", "NEIGHBOURHOOD_CLEAN"),
+    ("STRUCTURE_CLASS", "STRUCTURE_CLASS_CLEAN"),
+    ("BEDROOM_BUCKET", "BEDROOM_BUCKET_CLEAN")
+]:
+    property_seasonal[clean_column] = (
+        property_seasonal[source_column]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+comparison_seasonal = selected_properties.merge(
+    property_seasonal,
+    on=[
+        "CITY_CLEAN",
+        "NEIGHBOURHOOD_CLEAN",
+        "STRUCTURE_CLASS_CLEAN",
+        "BEDROOM_BUCKET_CLEAN"
+    ],
+    how="inner",
+    suffixes=("", "_SEASONAL")
+)
+
+month_names = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+    5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+}
+comparison_seasonal["MONTH_NAME"] = comparison_seasonal["MONTH"].map(month_names)
+
+# PAGE TITLE
+st.title("Property Types Comparison")
+st.subheader(
+    "Compare short-term and long-term performance and seasonal occupancy "
+    "across your 3 selected property and bedroom combinations."
+)
+
+# SELECTED PROPERTY CARDS
+st.markdown("### Your Starred Property Types")
+property_columns = st.columns(3, border=True)
+
+for index, property_item in selected_properties.iterrows():
+    with property_columns[index]:
+        st.header(property_item["structure_class"])
+        st.markdown(f"**Bedrooms: {property_item['bedroom_group']}**")
+        st.write(property_item["neighbourhood"])
+        st.caption(property_item["city"])
+
+st.divider()
+
+# SHORT-TERM VS LONG-TERM STRATEGY
+with st.container(border=True):
+    st.markdown("### Short-Term vs Long-Term Strategy")
+    st.caption(
+        "Compare estimated annual income and gross yield for short-term "
+        "and long-term investment."
+    )
+
+    revenue_chart_data = comparison_strategy[
+        ["PROPERTY_LABEL", "FULL_LABEL", "ST_ANNUAL_INCOME", "LT_ANNUAL_INCOME"]
+    ].melt(
+        id_vars=["PROPERTY_LABEL", "FULL_LABEL"],
+        value_vars=["ST_ANNUAL_INCOME", "LT_ANNUAL_INCOME"],
+        var_name="STRATEGY",
+        value_name="ANNUAL_INCOME"
+    )
+    revenue_chart_data["STRATEGY"] = revenue_chart_data["STRATEGY"].replace({
+        "ST_ANNUAL_INCOME": "Short-Term",
+        "LT_ANNUAL_INCOME": "Long-Term"
+    })
+    revenue_chart_data = revenue_chart_data.dropna(subset=["ANNUAL_INCOME"])
+
+    yield_chart_data = comparison_strategy[
+        ["PROPERTY_LABEL", "FULL_LABEL", "ST_GROSS_YIELD_PCT", "LT_GROSS_YIELD_PCT"]
+    ].melt(
+        id_vars=["PROPERTY_LABEL", "FULL_LABEL"],
+        value_vars=["ST_GROSS_YIELD_PCT", "LT_GROSS_YIELD_PCT"],
+        var_name="STRATEGY",
+        value_name="GROSS_YIELD"
+    )
+    yield_chart_data["STRATEGY"] = yield_chart_data["STRATEGY"].replace({
+        "ST_GROSS_YIELD_PCT": "Short-Term",
+        "LT_GROSS_YIELD_PCT": "Long-Term"
+    })
+    yield_chart_data = yield_chart_data.dropna(subset=["GROSS_YIELD"])
+
+    revenue_col, yield_col = st.columns(2, gap="medium")
+
+    with revenue_col:
+        st.markdown("#### Annual Income")
+        if revenue_chart_data.empty:
+            st.info("No annual income data was found for the selected options.")
+        else:
+            revenue_chart = (
+                alt.Chart(revenue_chart_data)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "PROPERTY_LABEL:N",
+                        title="",
+                        axis=alt.Axis(
+                            labelAngle=-25,
+                            labelColor="#000000",
+                            titleColor="#000000",
+                            labelLimit=180
+                        )
+                    ),
+                    xOffset=alt.XOffset("STRATEGY:N"),
+                    y=alt.Y(
+                        "ANNUAL_INCOME:Q",
+                        title="",
+                        axis=alt.Axis(
+                            format=",.0f",
+                            labelExpr="'£' + format(datum.value, ',.0f')",
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    color=alt.Color(
+                        "STRATEGY:N",
+                        title="Strategy",
+                        scale=alt.Scale(
+                            domain=["Short-Term", "Long-Term"],
+                            range=["#F26359", "#F8D9D3"]
+                        ),
+                        legend=alt.Legend(
+                            orient="bottom",
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    tooltip=[
+                        alt.Tooltip("FULL_LABEL:N", title="Property Type"),
+                        alt.Tooltip("STRATEGY:N", title="Strategy"),
+                        alt.Tooltip(
+                            "ANNUAL_INCOME:Q",
+                            title="Annual Income (£)",
+                            format=",.0f"
+                        )
+                    ]
+                )
+                .properties(height=350, background="#FFFFFF")
+            )
+            st.altair_chart(revenue_chart, use_container_width=True)
+
+    with yield_col:
+        st.markdown("#### Gross Yield")
+        if yield_chart_data.empty:
+            st.info("No gross-yield data was found for the selected options.")
+        else:
+            yield_chart = (
+                alt.Chart(yield_chart_data)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "PROPERTY_LABEL:N",
+                        title="",
+                        axis=alt.Axis(
+                            labelAngle=-25,
+                            labelColor="#000000",
+                            titleColor="#000000",
+                            labelLimit=180
+                        )
+                    ),
+                    xOffset=alt.XOffset("STRATEGY:N"),
+                    y=alt.Y(
+                        "GROSS_YIELD:Q",
+                        title="",
+                        scale=alt.Scale(zero=True),
+                        axis=alt.Axis(
+                            format=".1f",
+                            labelExpr="datum.label + '%'",
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    color=alt.Color(
+                        "STRATEGY:N",
+                        title="Strategy",
+                        scale=alt.Scale(
+                            domain=["Short-Term", "Long-Term"],
+                            range=["#F26359", "#F8D9D3"]
+                        ),
+                        legend=alt.Legend(
+                            orient="bottom",
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    tooltip=[
+                        alt.Tooltip("FULL_LABEL:N", title="Property Type"),
+                        alt.Tooltip("STRATEGY:N", title="Strategy"),
+                        alt.Tooltip(
+                            "GROSS_YIELD:Q",
+                            title="Gross Yield (%)",
+                            format=".2f"
+                        )
+                    ]
+                )
+                .properties(height=350, background="#FFFFFF")
+            )
+            st.altair_chart(yield_chart, use_container_width=True)
+
+st.divider()
+
+# SEASONAL OCCUPANCY
+occupancy_col, ai_col =st.columns([1,1])
+
+with occupancy_col:
+    with st.container(border=True):
+        st.markdown("### Seasonal Occupancy Pattern")
+        st.caption(
+            "Compare monthly occupancy across the 3 selected property and "
+            "bedroom combinations."
+        )
+    
+        if comparison_seasonal.empty:
+            st.info("No seasonal occupancy data was found for the selected options.")
+        else:
+            occupancy_chart = (
+                alt.Chart(comparison_seasonal)
+                .mark_line(point=True, strokeWidth=3)
+                .encode(
+                    x=alt.X(
+                        "MONTH_NAME:N",
+                        title="Month",
+                        sort=[
+                            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                        ],
+                        axis=alt.Axis(
+                            labelAngle=0,
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    y=alt.Y(
+                        "OCCUPANCY_RATE:Q",
+                        title="Occupancy Rate",
+                        scale=alt.Scale(domain=[0, 1]),
+                        axis=alt.Axis(
+                            format=".0%",
+                            labelColor="#000000",
+                            titleColor="#000000"
+                        )
+                    ),
+                    color=alt.Color(
+                        "PROPERTY_LABEL:N",
+                        title="Property Type",
+                        scale=alt.Scale(
+                            range=["#F26359", "#7A2E2A", "#F5A097"]
+                        ),
+                        legend=alt.Legend(
+                            orient="bottom",
+                            labelColor="#000000",
+                            titleColor="#000000",
+                            labelLimit=300
+                        )
+                    ),
+                    tooltip=[
+                        alt.Tooltip("FULL_LABEL:N", title="Property Type"),
+                        alt.Tooltip("MONTH_NAME:N", title="Month"),
+                        alt.Tooltip(
+                            "OCCUPANCY_RATE:Q",
+                            title="Occupancy Rate",
+                            format=".1%"
+                        ),
+                        alt.Tooltip(
+                            "BOOKED_NIGHTS:Q",
+                            title="Booked Nights",
+                            format=",.0f"
+                        ),
+                        alt.Tooltip(
+                            "TOTAL_NIGHTS:Q",
+                            title="Total Nights",
+                            format=",.0f"
+                        ),
+                        alt.Tooltip(
+                            "LISTING_COUNT:Q",
+                            title="Listings",
+                            format=",.0f"
+                        ),
+                        alt.Tooltip(
+                            "SUFFICIENT_SAMPLE:N",
+                            title="Sufficient Sample"
+                        )
+                    ]
+                )
+                .properties(height=400, background="#FFFFFF")
+            )
+            st.altair_chart(occupancy_chart, use_container_width=True)
+
+#AI SUMMARY GOES HERE
+#with ai_col:
+    

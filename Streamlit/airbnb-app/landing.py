@@ -1,14 +1,12 @@
-# Streamlit landing page: investor persona selection plus a temporary Gemini live-API check.
+# Streamlit landing page: investor persona selection and navigation.
 # Co-authored with CoCo
 # Import python packages
 import streamlit as st
 from db import get_session
 
-st.set_page_config(
-    page_title='Landing',
-    page_icon='👋'
-)
+st.set_page_config(layout='wide')
 
+#CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
     """
     <style>
@@ -17,9 +15,90 @@ st.markdown(
         background-color: white !important;
     }
 
+    [data-testid="stFullScreenFrame"] {
+        background-color: white !important;
+    }
+
+    [data-testid="stBottom"],
+    [data-testid="stBottom"] > div,
+    [data-testid="stBottomBlockContainer"] {
+        left: 0px !important;
+        right: auto !important;
+        width: 62% !important;
+        max-width: 950px !important;
+        min-width: 500px !important;
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        transform: none !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        border-top: none !important;
+        pointer-events: none !important;
+        bottom: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] > div {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+        max-width: 950px !important;
+        background-color: white !important;
+        border: 1px solid #f26359 !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        pointer-events: auto !important;
+        max-height: 42vh !important;
+        overflow-y: auto !important;
+    }
+    [data-testid="stBottomBlockContainer"] [data-testid="stVerticalBlock"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stBottomBlockContainer"] [data-testid="stElementContainer"] {
+        margin-left: 0px !important;
+        margin-right: auto !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        background-color: #f8d9d3 !important;
+    }
+
+    [data-testid="stExpander"] summary:hover {
+        background-color: #f26359 !important;
+    }
+
+    [data-testid="stExpander"] details[open] summary {
+        background-color: #f8d9d3 !important;
+    }
+
     /* Sidebar */
+    [data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
     section[data-testid="stSidebar"] {
         background-color: white !important;
+        display: none !important;
+    }
+
+    [data-testid="stSelectbox"] input {
+        background-color: #f8d9d3 !important;
+        color: #f26359 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    [data-testid="stSelectbox"] button {
+        background-color: #f8d9d3 !important;
     }
 
     /* Big headings */
@@ -40,7 +119,7 @@ st.markdown(
 
     /* Captions */
     [data-testid="stCaptionContainer"] {
-        color: #f26359 !important;
+        color: #000000 !important;
     }
 
     div[data-testid="stAlert"] {
@@ -100,10 +179,88 @@ st.markdown(
         text-align: center !important;
         line-height: 1.3 !important;
     }
+
+    [data-testid="stLinkButton"] a {
+        background-color:#FFFAF0 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+        border-radius: 12px !important;
+    }
+
+    [data-testid="stLinkButton"] a:hover {
+        background-color: #f8d9d3 !important;
+        width: 100% !important;
+        height: 90px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: white !important;
+        border: 2px solid #F4EFEB !important;
+    }
+
+     /* Multiselect outer box */
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        background-color: #f8d9d3 !important;
+    }
+
+    /* Text typed inside the multiselect */
+    [data-testid="stMultiSelect"] input {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Placeholder text */
+    [data-testid="stMultiSelect"] input::placeholder {
+        color: #7A2E2A !important;
+        opacity: 1 !important;
+    }
+
+    /* Selected option boxes / tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #f26359 !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+    }
+
+    /* Text inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+        color: #ffffff !important;
+    }
+
+    /* Remove icon inside selected tags */
+    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
+    }
+
+    /* Dropdown menu background */
+    div[data-baseweb="popover"] ul {
+        background-color: #ffffff !important;
+    }
+
+    /* Dropdown options */
+    div[data-baseweb="popover"] li {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Dropdown option hover */
+    div[data-baseweb="popover"] li:hover {
+        background-color: #f8d9d3 !important;
+        color: #000000 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
+
+empty_col, page_col1 = st.columns([7,1])
+with page_col1:
+    if st.button('Documentation', use_container_width = True):
+        st.switch_page('pages/4_Documentation.py')
 
 st.title("Airbnb Investment Intelligence")
 st.warning(
@@ -113,20 +270,6 @@ st.write(
     """Data-driven insights to help you find the best short-term rental opportunities in the UK. Select your investor profile to get personalised recommendations.
   """
 )
-
-# ===== GEMINI LIVE API CHECK — TEMPORARY, safe to delete this whole block =====
-with st.expander("Gemini live API check"):
-    if "gemini" not in st.secrets:
-        st.warning("No [gemini] key found in secrets.")
-    elif st.button("Test Gemini live call"):
-        try:
-            from gemini import generate
-            reply = generate("Reply with exactly: pong")
-            st.success("Gemini is working ✅")
-            st.write(reply)
-        except Exception as e:
-            st.error(f"Gemini call failed ❌ — {e}")
-# ===== END GEMINI LIVE API CHECK =====
 
 session = get_session()
 
@@ -183,7 +326,7 @@ if pis:
 selected_persona = st.session_state["persona"]
 
 if selected_persona is None:
-    st.write("You have chosen: ", None)
+    st.write("You have chosen: none")
 else:
     #st.write("You have chosen:", selected_persona)
     st.markdown(persona_descriptions[selected_persona])
