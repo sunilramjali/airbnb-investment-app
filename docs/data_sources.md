@@ -5,6 +5,11 @@ Where the raw data in this project comes from, and how it lands in Snowflake.
 For how the data is ingested, see the [README](../README.md). For the pipeline overview, see
 [architecture.md](architecture.md).
 
+> **Prerequisite:** every source below is read from an **AWS S3 bucket** that Snowflake accesses
+> through a **storage integration**. You must configure the bucket and complete the IAM trust
+> handshake before any load will work — see the README Quick Start prerequisite and
+> "Data Ingestion (Bronze) → Step 1".
+
 ---
 
 ## Source: Inside Airbnb
