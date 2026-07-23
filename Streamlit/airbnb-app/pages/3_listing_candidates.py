@@ -367,6 +367,22 @@ FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
+# In-memory cache (per running app) layered on the persistent Snowflake
+# LISTING_COMPARISON_CACHE table. Leading-underscore args are skipped by
+# Streamlit's hasher; the rest are plain strings so they hash cleanly.
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_listing_comparison(
+    _session, _api_key, city, neighbourhood, persona, property_group
+):
+    return lch.get_or_generate_comparison(
+        _session,
+        _api_key,
+        city,
+        neighbourhood,
+        persona,
+        property_group,
+    )
+
 listing_candidates = load_listings(session)
 
 ai_summary = load_summary(session)
@@ -537,14 +553,21 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                 st.divider()
                 st.markdown("### AI Comparison: Top 3 vs Bottom 3")
 
+                st.caption(
+                    "Persona-based comparison of the top 3 vs bottom 3 listings "
+                    "among the top 10 in this property group, neighbourhood and city."
+                )
+
+                selected_property_group = top_10_listings.iloc[0]["PROPERTY_GROUP"]
+
                 api_key = st.secrets.get("gemini", {}).get("api_key")
                 if not api_key:
                     st.info("Add a [gemini] api_key to secrets to enable the AI comparison.")
-                else:
+                elif st.button("Generate AI summary", use_container_width=True):
                     with st.container(border=True):
                         try:
                             with st.spinner("Generating AI comparison..."):
-                                narrative_json = lch.get_or_generate_comparison(
+                                narrative_json = get_cached_listing_comparison(
                                     session,
                                     api_key,
                                     selected_city,
@@ -591,5 +614,3 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                 if data.get("what_to_avoid"):
                                     st.markdown("**What to avoid**")
                                     st.write(data["what_to_avoid"])
-
-#AI-summary --- to be continued
