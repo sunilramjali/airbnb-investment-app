@@ -334,44 +334,45 @@ st.markdown(
     [data-testid="stElementContainer"] {
         background: transparent !important;
     }
+
+    /* Hide the logo, buttons and the auto-print iframe when printing.
+       Print mode already re-renders only the charts + their titles,
+       so no fragile :has() reveal rules are needed here. */
+    [data-testid="stImage"],
+    div.stButton,
+    [data-testid="stButton"],
+    iframe {
+        display: none !important;
+    }
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-render_logo()
+print_mode = st.query_params.get("print") == "1"
+
+if not print_mode:
+    render_logo()
 
 page_col1, empty_col, print_col = st.columns([1, 6, 1])
 
-with page_col1:
-    if st.button("Back to Area Overview",use_container_width=True):
-        st.switch_page(
-            "pages/1_area_overview.py")
+if print_mode:
+    with page_col1:
+        if st.button("Back", use_container_width=True):
+            if "print" in st.query_params:
+                del st.query_params["print"]
+            st.rerun()
+else:
+    with page_col1:
+        if st.button("Back to Area Overview", use_container_width=True):
+            st.switch_page(
+                "pages/1_area_overview.py")
 
-with print_col:
-    html(
-        """
-        <button
-            onclick="window.parent.print()"
-            style="
-                width: 100%;
-                height: 42px;
-                background-color: #FFFAF0;
-                color: #000000;
-                border: 2px solid #F4EFEB;
-                border-radius: 10px;
-                font-size: 18px;
-                font-weight: 600;
-                cursor: pointer;
-            "
-            title="Print or save as PDF"
-        >
-            Print
-        </button>
-        """,
-        height=50
-    )
+    with print_col:
+        if st.button("Print", use_container_width=True):
+            st.query_params["print"] = "1"
+            st.rerun()
 
 if "starred_neighbourhoods" not in st.session_state:
     st.session_state["starred_neighbourhoods"] = []
@@ -847,40 +848,41 @@ def build_poi_map(
 
 # VISUALISATIONS
 
-# STARRED NEIGHBOURHOODS
-st.markdown(
-    "### Your Starred Neighbourhoods"
-)
+# STARRED NEIGHBOURHOODS (hidden when printing)
+if not print_mode:
+    st.markdown(
+        "### Your Starred Neighbourhoods"
+    )
 
-neighbourhood_columns = st.columns(
-    3,
-    border=True
-)
+    neighbourhood_columns = st.columns(
+        3,
+        border=True
+    )
 
-for index, neighbourhood in enumerate(
-    starred_neighbourhoods[:3]
-):
+    for index, neighbourhood in enumerate(
+        starred_neighbourhoods[:3]
+    ):
 
-    neighbourhood_name = neighbourhood[
-        "neighbourhood"
-    ]
+        neighbourhood_name = neighbourhood[
+            "neighbourhood"
+        ]
 
-    city_name = neighbourhood[
-        "city"
-    ]
+        city_name = neighbourhood[
+            "city"
+        ]
 
-    with neighbourhood_columns[index]:
+        with neighbourhood_columns[index]:
 
-        st.header(
-            neighbourhood_name
-        )
+            st.header(
+                neighbourhood_name
+            )
 
-        st.caption(
-            city_name
-        )
+            st.caption(
+                city_name
+            )
 
 
-st.divider()
+    st.divider()
 
 # SHORT-TERM VS LONG-TERM STRATEGY
 with st.container(
@@ -1274,6 +1276,15 @@ with occupancy_col:
     
 
 st.divider()
+
+# In print mode, only the charts above are shown: auto-open the browser
+# print dialog once they have rendered, then stop before the POI section.
+if print_mode:
+    html(
+        "<script>setTimeout(function(){ window.parent.print(); }, 1200);</script>",
+        height=0
+    )
+    st.stop()
 
 # POINTS OF INTEREST MAPS
 st.markdown(
