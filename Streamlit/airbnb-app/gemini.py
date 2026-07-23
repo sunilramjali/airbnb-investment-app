@@ -19,11 +19,20 @@ DEFAULT_MODEL = "gemini-3.1-flash-lite"
 def _resolve_key(api_key):
     if api_key:
         return api_key
-    return st.secrets["gemini"]["api_key"]  # KeyError -> caller surfaces it
+    # Prefer a Snowflake-managed secret (top-level key in container runtime),
+    # then fall back to the nested [gemini] table from a local secrets.toml.
+    try:
+        return st.secrets["gemini_api_key"]
+    except Exception:
+        return st.secrets["gemini"]["api_key"]  # KeyError -> caller surfaces it
 
 
 def _resolve_model_name():
-    return st.secrets.get("gemini", {}).get("model", DEFAULT_MODEL)
+    # Top-level managed secret first, then nested table, then the default.
+    try:
+        return st.secrets["gemini_model"]
+    except Exception:
+        return st.secrets.get("gemini", {}).get("model", DEFAULT_MODEL)
 
 
 def generate(prompt: str, api_key: str = None, max_retries: int = 3) -> str:

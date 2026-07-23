@@ -1,6 +1,7 @@
 import streamlit as st
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
+from nav import render_nav_links
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -211,22 +212,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, page_col3, page_col4, empty_col= st.columns([1,1,1,1,4])
-with page_col1:
-    if st.button('Landing', use_container_width = True):
-        st.switch_page('landing.py')
-
-with page_col2:
-    if st.button('Area Overview', use_container_width = True):
-        st.switch_page('pages/1_area_overview.py')
-
-with page_col3:
-    if st.button('Property Types', use_container_width = True):
-        st.switch_page('pages/2_property_types.py')
-
-with page_col4:
-    if st.button('Listing Candidates', use_container_width = True):
-        st.switch_page('pages/3_listing_candidates')
+render_nav_links()
 
 st.set_page_config(layout='wide')
 
@@ -651,6 +637,30 @@ with st.expander('✨  How are AI summaries used?', expanded=True):
 
 with st.expander('⚖  Transparency, assumptions & limitations', expanded=True):
 
+    st.markdown('#### Investment universe used in the app')
+
+    st.markdown(
+        """
+        The figures shown are based on a like-for-like investment universe rather than
+        every listing in the raw data.
+
+        - **Active listings only.** A listing is counted as active when it has an
+          estimated 30 or more booked nights over the trailing 12 months. Listings
+          below this threshold are treated as dormant and excluded, so the figures
+          reflect properties that are genuinely being let rather than inactive or
+          rarely-booked listings.
+
+        - **Flats and houses only.** Only entire-home flats and houses are included.
+          Other structure types — such as hotels, B&Bs, boats and non-dwelling
+          listings — are excluded because flats and houses are the property types a
+          buy-to-let investor can realistically purchase and operate.
+
+        Together, these filters keep the comparison focused on active, purchasable
+        residential properties, giving a more realistic picture of achievable
+        performance.
+        """
+    )
+    
     st.markdown('#### What the figures represent')
 
     st.markdown(

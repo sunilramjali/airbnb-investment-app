@@ -22,6 +22,7 @@ Run:
 """
 
 import os
+import sys
 import json
 import time
 import pandas as pd
@@ -44,9 +45,10 @@ PROMPT_VERSION = 'v1'
 # 'full'   — delete existing RECOMMENDATION rows for all cities and regenerate from scratch
 #             Use 'full' when prompt logic has changed
 RUN_MODE       = 'full'
+DRY_RUN        = False  # True = count combos and exit; False = run normally
 
-CITIES = ['Bristol', 'London', 'Greater Manchester']
-# CITIES = ['Bristol']
+# CITIES = ['Bristol', 'London', 'Greater Manchester']
+CITIES = ['Bristol']
 PERSONAS = {
     'YIELD_MAXIMISER': {
         'label':     'Yield Maximiser',
@@ -145,17 +147,18 @@ def load_borough_data(conn, city):
     return df
 
 
-def load_property_type_data(conn, city):
+def load_property_bedroom_data(conn, city):
     df = pd.read_sql(f"""
         SELECT
-            j1.NEIGHBOURHOOD,
-            j1.PROPERTY_GROUP,
+            p.NEIGHBOURHOOD,
+            p.STRUCTURE_CLASS,
             p.LISTING_COUNT,
             ROUND(p.AVG_ADR, 2) AS avg_price,
             ROUND(p.AVG_OCCUPANCY_RATE * 100, 1) AS avg_occupancy,
             ROUND(p.AVG_ANNUAL_REVENUE, 2) AS avg_revenue,
             ROUND(p.AVG_RATING, 2) AS avg_rating,
-            p.MEDIAN_SALE_PRICE AS median_sale_price,
+            p.SUFFICIENT_SAMPLE AS sufficient_sample,
+            p.BEDROOM_BUCKET AS bedroom_bucket,
             ROUND(j1.INVESTMENT_SCORE_YIELD, 2)
                 AS avg_score_yield_maximiser,
             ROUND(j1.INVESTMENT_SCORE_OCCUPANCY, 2)
@@ -164,8 +167,14 @@ def load_property_type_data(conn, city):
                 AS avg_score_quality_host
         FROM (
             SELECT
+                CASE
+                    WHEN a.BEDROOMS >= 4 THEN '4+'
+                    WHEN a.BEDROOMS IN (1,2,3)
+                        THEN CAST(a.BEDROOMS AS VARCHAR)
+                END AS BEDROOM_BUCKET,
                 a.NEIGHBOURHOOD,
-                a.PROPERTY_GROUP,
+                a.STRUCTURE_CLASS,
+                b.CITY,
                 AVG(b.SCORE_YIELD_MAXIMISER)
                     AS INVESTMENT_SCORE_YIELD,
                 AVG(b.SCORE_OCCUPANCY_OPTIMISER)
@@ -176,29 +185,33 @@ def load_property_type_data(conn, city):
             LEFT JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
                 ON a.LISTING_ID = b.LISTING_ID
             WHERE a.NEIGHBOURHOOD IS NOT NULL
-            AND a.PROPERTY_GROUP IS NOT NULL
-            AND b.CITY = '{city}'
-            GROUP BY a.NEIGHBOURHOOD, a.PROPERTY_GROUP
+            AND a.STRUCTURE_CLASS IS NOT NULL
+            AND b.CITY IS NOT NULL
+            GROUP BY
+                b.CITY, a.NEIGHBOURHOOD, a.STRUCTURE_CLASS,
+                CASE
+                    WHEN a.BEDROOMS >= 4 THEN '4+'
+                    WHEN a.BEDROOMS IN (1,2,3)
+                        THEN CAST(a.BEDROOMS AS VARCHAR)
+                END
         ) j1
-        JOIN AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_GROUP p
+        JOIN AIRBNB_INVESTMENT_DB.GOLD.MART_BEDROOMS p
             ON p.NEIGHBOURHOOD = j1.NEIGHBOURHOOD
-            AND p.PROPERTY_GROUP = j1.PROPERTY_GROUP
+            AND p.STRUCTURE_CLASS = j1.STRUCTURE_CLASS
+            AND p.CITY = j1.CITY
+            AND p.BEDROOM_BUCKET = j1.BEDROOM_BUCKET
         WHERE p.NEIGHBOURHOOD IS NOT NULL
-        AND p.PROPERTY_GROUP IS NOT NULL
-        AND p.PROPERTY_GROUP != 'Other / Unknown'
-        AND p.PROPERTY_GROUP != ''
-        ORDER BY j1.NEIGHBOURHOOD,
-                 INVESTMENT_SCORE_YIELD DESC
+        AND p.STRUCTURE_CLASS IS NOT NULL
+        AND LOWER(TRIM(p.STRUCTURE_CLASS)) != 'other / unknown'
+        AND j1.CITY = '{city}'
+        ORDER BY p.NEIGHBOURHOOD, p.STRUCTURE_CLASS, p.BEDROOM_BUCKET
     """, conn)
 
     df.columns = df.columns.str.lower()
-    df = df.rename(columns={
-        'neighbourhood': 'neighbourhood_cleansed',
-        'property_group': 'structure_class',
-    })
+    df = df.rename(columns={'neighbourhood': 'neighbourhood_cleansed'})
 
-    print(f'Loaded property group data: '
-          f'{len(df)} neighbourhood x property group '
+    print(f'Loaded property/bedroom data: '
+          f'{len(df)} neighbourhood x structure x bedroom '
           f'combinations for {city}')
     return df
 
@@ -252,23 +265,16 @@ def build_recommendation_prompt(neighbourhood, persona_key,
         elif count < 10:
             disclaimer = ' (limited sample — interpret carefully)'
 
-        sale_price = (
-            f"median sale price £{row['median_sale_price']:,.0f}"
-            if pd.notna(row.get('median_sale_price'))
-            and row['median_sale_price'] > 0
-            else 'sale price data unavailable'
-        )
-
         top_3_text += (
-            f"{i+1}. {row['structure_class']} — "
+            f"{i+1}. {row['structure_class']}, "
+            f"{row['bedroom_bucket']} bedroom(s) — "
             f"avg investment score "
             f"{round(float(row[score_col]), 1)}/100 "
             f"(based on {count} listings{disclaimer}), "
             f"avg nightly price £{row['avg_price']}, "
             f"avg occupancy {row['avg_occupancy']}%, "
             f"avg annual revenue £{row['avg_revenue']:,.0f}, "
-            f"avg guest rating {row['avg_rating']}/5, "
-            f"{sale_price}\n"
+            f"avg guest rating {row['avg_rating']}/5\n"
         )
 
     if persona['label'] == 'Yield Maximiser':
@@ -290,46 +296,44 @@ def build_recommendation_prompt(neighbourhood, persona_key,
     system_prompt = f"""You are an expert Airbnb investment analyst \
 advising a {persona['label']} who prioritises {persona['focus']}.
 
-The property groups in the user message are already ranked \
+The property options in the user message are already ranked \
 from highest to lowest investment score for this persona. \
-You MUST set top_pick to the FIRST property group listed \
-and second_pick to the SECOND property group listed. \
+You MUST set top_pick to the FIRST combination listed \
+and second_pick to the SECOND combination listed. \
 Never reorder this ranking.
 
 Your role is to EXPLAIN why the pre-computed ranking makes \
-sense for this persona and add insight from the ST vs LT \
-yield data and bedroom analysis. Do not create your own \
-ranking.
+sense for this persona. Do not create your own ranking.
 
 PERSONA RULES: {persona_rules}
 
-Property groups are: Apartment/Flat, House, \
-Guest Accommodation, Unique Stay, Hotel/Hospitality, Outdoor/Land. \
-The investment scores shown are averages across multiple listings of \
-each group — not a single listing score. Be specific, reference actual \
-numbers, and tailor your advice entirely to this persona's priorities. \
-Do not mention other personas. If median_sale_price data is available, \
-reference the gross yield potential (annual revenue / sale price) as \
-part of your investment rationale. Where short-term vs long-term yield \
-data is provided, explicitly compare them and state which rental \
-strategy is better suited to this persona.
+Property options are limited to Flat and House, each considered \
+separately by bedroom count (1, 2, 3, 4+). Rank on the combination \
+of structure type AND bedroom count together — a 2-bedroom Flat and \
+a 3-bedroom Flat are different options, not the same one. The \
+investment scores shown are averages across all listings of that \
+structure type and bedroom count in this neighbourhood — not a \
+single listing score. Be specific, reference actual numbers, and \
+tailor your advice entirely to this persona's priorities. \
+Do not mention other personas.
 
 Respond with ONLY a valid JSON object, no other text:
 {{
-  "recommendation_summary": "2-3 sentence summary of which property \
-groups (Apartment/Flat, House, Guest Accommodation, Unique Stay etc.) \
-perform best in this neighbourhood for this persona and why, \
-referencing actual scores and revenue figures",
-  "top_pick": "MUST be the first property group listed in \
-the data — copy it exactly, do not change",
-  "top_pick_reason": "one specific sentence on why this property group \
+  "recommendation_summary": "2-3 sentence summary of which structure \
+type and bedroom count combinations perform best in this neighbourhood \
+for this persona and why, referencing actual scores and revenue figures",
+  "top_pick": "MUST be the first structure type + bedroom count \
+combination listed, e.g. 'House, 3 bedrooms' — copy it exactly, \
+do not change",
+  "top_pick_reason": "one specific sentence on why this combination \
 ranks first, referencing avg score, revenue and number of listings \
 it is based on",
-  "second_pick": "MUST be the second property group listed \
-exactly, or null if only one group available",
+  "second_pick": "MUST be the second structure type + bedroom count \
+combination listed exactly, e.g. 'Flat, 2 bedrooms', or null if \
+only one combination is available",
   "second_pick_reason": "one sentence on second pick referencing \
 actual numbers, otherwise null",
-  "what_to_avoid": "property group to avoid and specific reason why \
+  "what_to_avoid": "combination to avoid and specific reason why \
 based on the data",
 }}"""
 
@@ -362,6 +366,8 @@ Avg sentiment score: {round(float(borough_row['avg_sentiment_score']), 4) if pd.
 # ---------------------------------------------------------------------------
 # 3. Gemini API call
 # ---------------------------------------------------------------------------
+
+
 
 def call_gemini(client, system_prompt, user_prompt):
     combined    = system_prompt + '\n\n' + user_prompt
@@ -428,11 +434,11 @@ def generate_recommendations(conn, client, city,
         existing = pd.DataFrame(
             columns=['neighbourhood_cleansed', 'persona']
         )
-    # neighbourhood_count = 0
+    neighbourhood_count = 0
     for _, borough_row in df_borough.iterrows():
-        # if neighbourhood_count >= 1:
-        #     break
-        # neighbourhood_count += 1
+        if neighbourhood_count >= 1:
+            break
+        neighbourhood_count += 1
         neighbourhood = borough_row['neighbourhood_cleansed']
 
         neighbourhood_props = df_property[
@@ -468,7 +474,7 @@ def generate_recommendations(conn, client, city,
             system_prompt, user_prompt = build_recommendation_prompt(
                 neighbourhood, persona_key, top_3, borough_row
             )
-
+            print(user_prompt)
             ai_response = call_gemini(client, system_prompt, user_prompt)
 
             clean_response, confidence = parse_response(ai_response)
@@ -486,14 +492,10 @@ def generate_recommendations(conn, client, city,
                 'confidence':             confidence,
                 'metrics_json':           json.dumps({
                     'top_property_group':  top_3.iloc[0]['structure_class'],
+                    'top_bedroom_bucket':  top_3.iloc[0]['bedroom_bucket'],
                     'top_avg_score':       float(top_3.iloc[0][score_col]),
                     'listing_count':       int(top_3.iloc[0]['listing_count']),
                     'top_avg_revenue':     float(top_3.iloc[0]['avg_revenue']),
-                    'median_sale_price':   float(
-                        top_3.iloc[0]['median_sale_price'])
-                        if pd.notna(top_3.iloc[0].get('median_sale_price'))
-                        and top_3.iloc[0]['median_sale_price'] > 0
-                        else None,
                 }),
                 'prompt_version':         PROMPT_VERSION,
                 'model_used':             MODEL,
@@ -565,13 +567,34 @@ if __name__ == '__main__':
     print('Connections established.')
     print(f'Run mode: {RUN_MODE}')
 
+    if DRY_RUN:
+        print('DRY RUN — counting (neighbourhood x persona) '
+              'combinations only')
+        grand_total = 0
+        for city in CITIES:
+            df_borough  = load_borough_data(conn, city)
+            df_property = load_property_bedroom_data(conn, city)
+            city_count  = 0
+            for _, borough_row in df_borough.iterrows():
+                neighbourhood = borough_row['neighbourhood_cleansed']
+                neighbourhood_props = df_property[
+                    df_property['neighbourhood_cleansed'] == neighbourhood
+                ]
+                if len(neighbourhood_props) > 0:
+                    city_count += len(PERSONAS)
+            print(f'  {city}: {city_count} combinations')
+            grand_total += city_count
+        print(f'Total across all cities: {grand_total}')
+        conn.close()
+        sys.exit(0)
+
     if RUN_MODE == 'full':
         clear_existing_recommendations(conn, CITIES)
 
     for city in CITIES:
         print(f'\nProcessing {city}...')
         df_borough              = load_borough_data(conn, city)
-        df_property             = load_property_type_data(conn, city)
+        df_property             = load_property_bedroom_data(conn, city)
         df_recs = generate_recommendations(
             conn, client, city, df_borough, df_property
         )

@@ -3,6 +3,7 @@
 # Import python packages
 import streamlit as st
 from db import get_session
+from nav import render_doc_link
 
 st.set_page_config(layout='wide')
 
@@ -257,10 +258,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-empty_col, page_col1 = st.columns([7,1])
-with page_col1:
-    if st.button('Documentation', use_container_width = True):
-        st.switch_page('pages/4_Documentation.py')
+render_doc_link()
 
 st.title("Airbnb Investment Intelligence")
 st.warning(

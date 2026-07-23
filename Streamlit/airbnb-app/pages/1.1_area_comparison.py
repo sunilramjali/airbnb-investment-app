@@ -8,7 +8,9 @@ import json
 import altair as alt
 import pandas as pd
 import numpy as np
+from streamlit.components.v1 import html
 from db import get_session
+from nav import render_logo
 #import plotly.graph_objects as go
 from snowflake.snowpark.functions import st_x, st_y
 
@@ -224,15 +226,164 @@ st.markdown(
         background-color: #f8d9d3 !important;
         color: #000000 !important;
     }
+    @media print {
+
+    @page {
+        size: A4 landscape;
+        margin: 12mm;
+    }
+
+    /* Force the whole page to print in white */
+    html,
+    body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Force all text to black */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    li,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stCaptionContainer"],
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Hide Streamlit chrome */
+    header,
+    footer,
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+
+    /* Hide Streamlit buttons */
+    div.stButton,
+    [data-testid="stButton"] {
+        display: none !important;
+    }
+
+    /* Hide the custom print-button iframe */
+    iframe {
+        display: none !important;
+    }
+
+    /* Remove unnecessary app padding */
+    .block-container,
+    [data-testid="stMainBlockContainer"] {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Make bordered Streamlit containers printable */
+    [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stVerticalBlockBorderWrapper"] > div {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        border-color: #b0b0b0 !important;
+        box-shadow: none !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        display: block !important;
+    }
+
+    /* Force Streamlit columns to fit the page */
+    [data-testid="stHorizontalBlock"] {
+        width: 100% !important;
+        gap: 12px !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
+    [data-testid="column"] {
+        min-width: 0 !important;
+    }
+
+    /* Make Altair chart wrappers printable */
+    [data-testid="stVegaLiteChart"] {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
+    [data-testid="stVegaLiteChart"] > div,
+    [data-testid="stVegaLiteChart"] canvas,
+    [data-testid="stVegaLiteChart"] svg {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        max-width: 100% !important;
+    }
+
+    /* Remove dark fills from generic Streamlit blocks */
+    [data-testid="stVerticalBlock"],
+    [data-testid="stElementContainer"] {
+        background: transparent !important;
+    }
+
+    /* Hide the logo, buttons and the auto-print iframe when printing.
+       Print mode already re-renders only the charts + their titles,
+       so no fragile :has() reveal rules are needed here. */
+    [data-testid="stImage"],
+    div.stButton,
+    [data-testid="stButton"],
+    iframe {
+        display: none !important;
+    }
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-page_col1, empty_col = st.columns([1,7])
-with page_col1:
-    if st.button('Back to Area Overview', use_container_width = True):
-        st.switch_page('pages/1_area_overview.py')
+print_mode = st.query_params.get("print") == "1"
+
+if not print_mode:
+    render_logo()
+
+page_col1, empty_col, print_col = st.columns([1, 6, 1])
+
+if print_mode:
+    with page_col1:
+        if st.button("Back", use_container_width=True):
+            if "print" in st.query_params:
+                del st.query_params["print"]
+            st.rerun()
+else:
+    with page_col1:
+        if st.button("Back to Area Overview", use_container_width=True):
+            st.switch_page(
+                "pages/1_area_overview.py")
+
+    with print_col:
+        if st.button("Print", use_container_width=True):
+            st.query_params["print"] = "1"
+            st.rerun()
 
 if "starred_neighbourhoods" not in st.session_state:
     st.session_state["starred_neighbourhoods"] = []
@@ -724,40 +875,41 @@ def build_poi_map(
 
 # VISUALISATIONS
 
-# STARRED NEIGHBOURHOODS
-st.markdown(
-    "### Your Starred Neighbourhoods"
-)
+# STARRED NEIGHBOURHOODS (hidden when printing)
+if not print_mode:
+    st.markdown(
+        "### Your Starred Neighbourhoods"
+    )
 
-neighbourhood_columns = st.columns(
-    3,
-    border=True
-)
+    neighbourhood_columns = st.columns(
+        3,
+        border=True
+    )
 
-for index, neighbourhood in enumerate(
-    starred_neighbourhoods[:3]
-):
+    for index, neighbourhood in enumerate(
+        starred_neighbourhoods[:3]
+    ):
 
-    neighbourhood_name = neighbourhood[
-        "neighbourhood"
-    ]
+        neighbourhood_name = neighbourhood[
+            "neighbourhood"
+        ]
 
-    city_name = neighbourhood[
-        "city"
-    ]
+        city_name = neighbourhood[
+            "city"
+        ]
 
-    with neighbourhood_columns[index]:
+        with neighbourhood_columns[index]:
 
-        st.header(
-            neighbourhood_name
-        )
+            st.header(
+                neighbourhood_name
+            )
 
-        st.caption(
-            city_name
-        )
+            st.caption(
+                city_name
+            )
 
 
-st.divider()
+    st.divider()
 
 # SHORT-TERM VS LONG-TERM STRATEGY
 with st.container(
@@ -1219,6 +1371,15 @@ with ai_col:
                             st.write(data["what_to_avoid"])
 
 st.divider()
+
+# In print mode, only the charts above are shown: auto-open the browser
+# print dialog once they have rendered, then stop before the POI section.
+if print_mode:
+    html(
+        "<script>setTimeout(function(){ window.parent.print(); }, 1200);</script>",
+        height=0
+    )
+    st.stop()
 
 # POINTS OF INTEREST MAPS
 st.markdown(

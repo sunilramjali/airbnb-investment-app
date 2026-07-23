@@ -7,6 +7,7 @@ import sys
 import streamlit as st
 import pandas as pd
 from db import get_session
+from nav import render_breadcrumb
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -267,22 +268,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, page_col3, empty_col, page_col4 = st.columns([1,1,1,4,1])
-with page_col1:
-    if st.button('Landing', use_container_width = True):
-        st.switch_page('landing.py')
-
-with page_col2:
-    if st.button('Area Overview', use_container_width = True):
-        st.switch_page('pages/1_area_overview.py')
-
-with page_col3:
-    if st.button('Property Types', use_container_width = True):
-        st.switch_page('pages/2_property_types.py')
-
-with page_col4:
-    if st.button('Documentation', use_container_width = True):
-        st.switch_page('pages/4_Documentation.py')
+render_breadcrumb("listing_candidates")
 
 if "selected_listing_structure_class" not in st.session_state:
     st.session_state["selected_listing_structure_class"] = None
@@ -381,6 +367,23 @@ FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
     """
     ).to_pandas()
 
+# In-memory cache (per running app) layered on the persistent Snowflake
+# LISTING_COMPARISON_CACHE table. Leading-underscore args are skipped by
+# Streamlit's hasher; the rest are plain strings so they hash cleanly.
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_listing_comparison(
+    _session, _api_key, city, neighbourhood, persona, structure_class, bedroom_group
+):
+    return lch.get_or_generate_comparison(
+        _session,
+        _api_key,
+        city,
+        neighbourhood,
+        persona,
+        structure_class,
+        bedroom_group,
+    )
+
 listing_candidates = load_listings(session)
 
 ai_summary = load_summary(session)
@@ -474,10 +477,8 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                 st.divider()
 
                 st.markdown("### Top 10 Listing Candidates")
-
-                list_col, starred_col = st.columns([3, 1], gap="medium")
                 
-                with list_col:
+                with st.container(border=True):
                 
                     if top_10_listings.empty:
                         st.warning("No scored listings found for this property type.")
@@ -520,7 +521,7 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                     st.write(f"**Property Type:** {row.PROPERTY_TYPE}")
                                     st.write(f"**Room Type:** {row.ROOM_TYPE}")
                 
-                                    button_cols = st.columns([1, 1])
+                                    button_cols = st.columns([1])
                 
                                     with button_cols[0]:
                                         if pd.notna(row.LISTING_URL):
@@ -529,21 +530,6 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                                 row.LISTING_URL,
                                                 use_container_width=True
                                             )
-                
-                                    with button_cols[1]:
-                                        if already_starred:
-                                            st.success("Selected")
-                                        else:
-                                            if st.button(
-                                                "Star",
-                                                key=f"star_listing_{row.LISTING_ID}",
-                                                use_container_width=True
-                                            ):
-                                                if len(st.session_state["starred_listings"]) < 3:
-                                                    st.session_state["starred_listings"].append(listing_item)
-                                                    st.rerun()
-                                                else:
-                                                    st.warning("You can only star 3 listings.")
                 
                                 with row_cols[2]:
                                     st.markdown("### Investment")
@@ -564,64 +550,31 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                     st.write(f"**Rating:** {row.REVIEW_SCORES_RATING:,.2f}" if pd.notna(row.REVIEW_SCORES_RATING) else "**Rating:** N/A")
                                     st.write(f"**Reviews:** {row.NUMBER_OF_REVIEWS:,.0f}" if pd.notna(row.NUMBER_OF_REVIEWS) else "**Reviews:** N/A")
                                     st.write(f"**Occupancy:** {row.OCCUPANCY_RATE:,.1f}%" if pd.notna(row.OCCUPANCY_RATE) else "**Occupancy:** N/A")
-                
-                
-                with starred_col:
-                
-                    with st.container(border=True):
-                        st.markdown("### Starred Listings")
-                
-                        starred_listings = st.session_state["starred_listings"]
-                
-                        if len(starred_listings) == 0:
-                            st.info("No listings starred yet.")
-                
-                        else:
-                            for i, item in enumerate(starred_listings):
-                
-                                with st.container(border=True):
-                
-                                    if pd.notna(item["picture_url"]):
-                                        st.image(item["picture_url"], use_container_width=True)
-                                    else:
-                                        st.write("No image")
-                
-                                    st.markdown(f"### ⭐ {item['name']}")
-                                    st.write(f"**{item['city']}**")
-                                    st.write(f"**{item['neighbourhood']}**")
-                                    st.write(f"**{item['property_type']}**")
-                                    st.write(f"**{item['structure_class']} - {item['bedroom_group']} bedroom**")
-                
-                                    if "investment_score" in item:
-                                        st.caption(f"Investment Score: **{item['investment_score']:,.2f}**")
-                
-                                    if st.button(
-                                        "🗑️",
-                                        key=f"remove_starred_listing_{i}_{item['listing_id']}",
-                                        use_container_width=True
-                                    ):
-                                        st.session_state["starred_listings"].pop(i)
-                                        st.rerun()
-                
-                        st.caption(f"{len(starred_listings)} / 3 selected")
 
                 st.divider()
                 st.markdown("### AI Comparison: Top 3 vs Bottom 3")
 
+                st.caption(
+                    "Persona-based comparison of the top 3 vs bottom 3 of the "
+                    "top 10 listings shown above for this property type, bedroom "
+                    "count, neighbourhood and city."
+                )
+
                 api_key = st.secrets.get("gemini", {}).get("api_key")
                 if not api_key:
                     st.info("Add a [gemini] api_key to secrets to enable the AI comparison.")
-                else:
+                elif st.button("Generate AI summary", use_container_width=True):
                     with st.container(border=True):
                         try:
                             with st.spinner("Generating AI comparison..."):
-                                narrative_json = lch.get_or_generate_comparison(
+                                narrative_json = get_cached_listing_comparison(
                                     session,
                                     api_key,
                                     selected_city,
                                     selected_neighbourhood,
                                     persona_clean.upper(),
-                                    selected_property_group,
+                                    selected_structure_class,
+                                    selected_bedroom_group,
                                 )
                         except Exception as e:
                             narrative_json = None
@@ -662,5 +615,3 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                 if data.get("what_to_avoid"):
                                     st.markdown("**What to avoid**")
                                     st.write(data["what_to_avoid"])
-
-#AI-summary --- to be continued

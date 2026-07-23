@@ -3,6 +3,7 @@ import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
+from nav import render_breadcrumb
 
 st.set_page_config(layout='wide')
 #st.write("Checking 1 2 3")
@@ -258,15 +259,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-page_col1, empty_col, page_col2 = st.columns([1,6,1])
-with page_col1:
-    if st.button('Landing', use_container_width = True):
-        st.switch_page('landing.py')
+render_breadcrumb("area_overview")
 
-with page_col2:
-    if st.button('Documentaion', use_container_width = True):
-        st.switch_page('pages/4_Documentation.py')
-    
 st.set_page_config(layout = 'wide')
 
 if 'starred_neighbourhoods' not in st.session_state:
