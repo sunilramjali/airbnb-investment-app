@@ -54,18 +54,21 @@ PERSONAS = {
 
 def check_cache(session, city, neighbourhood, persona):
     try:
-        result = session.sql(f"""
-            SELECT "ai_narrative"
+        result = session.sql(
+            f"""
+            SELECT AI_NARRATIVE
             FROM {DATABASE}.{GOLD_SCHEMA}.{OUTPUT_TABLE}
-            WHERE "city" = '{city}'
-            AND "neighbourhood_cleansed" = '{neighbourhood}'
-            AND "persona" = '{persona}'
-            AND "output_type" = '{OUTPUT_TYPE}'
-            AND "prompt_version" = '{PROMPT_VERSION}'
+            WHERE CITY = ?
+            AND NEIGHBOURHOOD_CLEANSED = ?
+            AND PERSONA = ?
+            AND OUTPUT_TYPE = ?
+            AND PROMPT_VERSION = ?
             LIMIT 1
-        """).to_pandas()
+            """,
+            params=[city, neighbourhood, persona, OUTPUT_TYPE, PROMPT_VERSION],
+        ).to_pandas()
         if len(result) > 0:
-            val = result.iloc[0]['ai_narrative']
+            val = result.iloc[0]['AI_NARRATIVE']
             if val and str(val).strip():
                 return str(val)
         return None
@@ -75,30 +78,28 @@ def check_cache(session, city, neighbourhood, persona):
 
 def write_to_cache(session, city, neighbourhood, persona,
                    narrative, investment_score, metrics_json, confidence):
-    df = pd.DataFrame([{
-        'city':                   city,
-        'neighbourhood_cleansed': neighbourhood,
-        'persona':                persona,
-        'output_type':            OUTPUT_TYPE,
-        'investment_score':       investment_score,
-        'ai_narrative':           narrative,
-        'confidence':             confidence,
-        'metrics_json':           metrics_json,
-        'prompt_version':         PROMPT_VERSION,
-        'model_used':             MODEL,
-        'computed_at':            pd.Timestamp.now(),
-    }])
+    # Parameterized INSERT (bind variables) — needs only INSERT privilege on the
+    # pre-created table, avoiding the CREATE TABLE / temp-stage rights that
+    # write_pandas requires. Binds also make the JSON narrative injection-safe.
+    insert_sql = f"""
+        INSERT INTO {DATABASE}.{GOLD_SCHEMA}.{OUTPUT_TABLE}
+            (CITY, NEIGHBOURHOOD_CLEANSED, PERSONA, OUTPUT_TYPE,
+             INVESTMENT_SCORE, AI_NARRATIVE, CONFIDENCE, METRICS_JSON,
+             PROMPT_VERSION, MODEL_USED, COMPUTED_AT)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
+    """
+    params = [
+        city, neighbourhood, persona, OUTPUT_TYPE,
+        investment_score, narrative, confidence, metrics_json,
+        PROMPT_VERSION, MODEL,
+    ]
+
     try:
-        session.write_pandas(
-            df,
-            OUTPUT_TABLE,
-            database=DATABASE,
-            schema=GOLD_SCHEMA,
-            overwrite=False,
-            auto_create_table=True
-        )
+        session.sql(insert_sql, params=params).collect()
     except Exception as e:
-        print(f'Cache write failed: {e}')
+        # Surface, don't swallow: a silent failure here is why the cache
+        # never populated. Caller can log/handle it.
+        raise RuntimeError(f'Cache write failed: {e}') from e
 
 
 # ---------------------------------------------------------------------------
