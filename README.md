@@ -1,5 +1,20 @@
 # UK Airbnb Investment App
 
+**Live app:** https://bnb-investment.streamlit.app
+
+### Problem
+UK property investors have no easy way to compare **short-term (Airbnb)** vs **long-term
+(buy-to-let)** returns across London, Greater Manchester, and Bristol — the signals live in
+separate public datasets (listings, sale prices, rents, geography) that are painful to join.
+
+### Outcome
+A Snowflake-native app that blends five public datasets through a Bronze → Silver → Gold
+pipeline into denormalised, app-ready marts — serving area overviews, per-listing comparisons,
+and short-term-vs-long-term **gross-yield** strategy screens by neighbourhood, property type,
+and bedroom count, with no query-time joins.
+
+---
+
 A Snowflake-native data application that helps property investors compare **short-term
 (Airbnb) vs long-term (buy-to-let) returns** across **London, Greater Manchester, and
 Bristol** — by neighbourhood, property type, and bedroom count.
