@@ -1,3 +1,27 @@
+# UK Airbnb Investment App
+
+A Snowflake-native data application that helps property investors compare **short-term
+(Airbnb) vs long-term (buy-to-let) returns** across **London, Greater Manchester, and
+Bristol** — by neighbourhood, property type, and bedroom count.
+
+It blends five public datasets in a Bronze → Silver → Gold (medallion) pipeline:
+
+- **Inside Airbnb** — listings, calendar, reviews (short-term revenue & occupancy)
+- **HM Land Registry Price Paid** — residential sale prices (purchase cost)
+- **ONS Price Index of Private Rents** — observed long-term market rents
+- **Overture Places** — points of interest / amenities
+- **OS Code-Point Open** — postcode → neighbourhood geography
+
+The gold layer serves denormalised marts the app reads directly — area overviews, per-listing
+comparisons, and short-term-vs-long-term **gross-yield** strategy screens — all computed in
+Snowflake with no query-time joins.
+
+This file is the project guide; read the `docs/` files for more detail. For the big-picture
+pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
+
+----------------------------------------------------------
+
+
 # Branches and File/Folder Naming Conventions
 
 branches = hyphens
@@ -7,650 +31,361 @@ Branch:
 role/data-engineer/feature/data-ingestion
 
 Folder:
-src/data_engineering/
+setup/run_setup.py
 
 
 ----------------------------------------------------------
 
 
+# Where This Runs — Snowflake-native
 
-# Project Architecture Guide
+This project is built to run **inside Snowflake** (Snowflake Workspaces / Snowsight
+notebooks), not on a local machine.
 
-This project follows a simple data pipeline structure based on the **Bronze → Silver → Gold** architecture.
+- The Python code uses Snowpark's `get_active_session()` — Snowflake hands the code a
+  ready-made, authenticated session. **No local install, no credentials, no `.env`.**
+- Packages it relies on (`snowflake-snowpark-python`, `sqlparse`) are already available in
+  Snowflake's Python/Anaconda environment, so there is intentionally **no `requirements.txt`**.
+- The SQL runs server-side; data lands on Snowflake stages and tables directly.
 
-The purpose of this structure is to keep the project organised, easy to understand, and easy for the team to collaborate on.
+### If you want to run it outside Snowflake (local laptop, CI, Airflow)
 
-Current project structure:
+This is **not** the supported path, but if a teammate needs it, the recommendation is:
+
+1. Create a virtual env and install deps explicitly (add a `requirements.txt`):
+   ```text
+   snowflake-snowpark-python
+   sqlparse
+   ```
+2. Replace `get_active_session()` with an explicit connection — `Session.builder` reading a
+   `connections.toml` or environment variables. **Never hardcode account/user/password.**
+3. Keep `data/`, secrets, and `connections.toml` out of git (already covered by `.gitignore`).
+
+Treat the in-Snowflake path as the source of truth; the local path is a convenience for
+testing/automation only.
+
+---
+
+# Quick Start
+
+Run these in order. The first three are **one-time** per account; the last one runs **every
+time** you want to (re)load data.
+
+| # | Step | File | When |
+|---|------|------|------|
+| 1 | Create DB, warehouses, integrations | `setup/run_setup.py` | once |
+| 2 | Create Bronze formats + S3 stage + audit | `etl/ingestion_layer/01_bronze_ddl.sql` | once |
+| 3 | Complete the AWS IAM trust handshake | *(AWS console)* | once |
+| 4 | Load all cities into Bronze | `etl/ingestion_layer/02_bronze_load.py` | every load |
+
+The Airbnb steps above are the primary pipeline. **Land Registry Price Paid** is a second,
+independent source that lands in the same `BRONZE` schema (see its section below):
+
+| # | Step | File | When |
+|---|------|------|------|
+| 5 | Create Land Registry format + stage | `etl/ingestion_layer/03_land_registry_ddl.sql` | once |
+| 6 | Load Price Paid years into Bronze | `etl/ingestion_layer/04_land_registry_load.sql` | every load |
+| 7 | Load Overture Places POIs into Bronze | `etl/ingestion_layer/05_overture_poi_load.sql` | every load |
+| 8 | Load OS Code-Point postcodes into Bronze | `etl/ingestion_layer/06_code_point_load.sql` | every load |
+| 9 | Create ONS rent stage + xlsx parse proc | `etl/ingestion_layer/07_ons_private_rent_ddl.sql` | once |
+| 10 | Load ONS private rents into Bronze | `etl/ingestion_layer/08_ons_private_rent_load.sql` | every load |
+
+Once Bronze is loaded, build the upper layers:
+
+| # | Step | File | When |
+|---|------|------|------|
+| 11 | Build Silver (`*_CLEANED` tables) | `etl/cleaning_layer/cleaning_layer.py` | every build |
+| 12 | Build Gold (star + app marts) | `etl/aggregation_layer/aggregation_layer.py` | every build |
+
+Current project database and warehouses:
 
 ```text
-airbnb-investment-app/
-├── CHEATSHEET.md
-├── README.md
-├── data/
-│   ├── bronze/
-│   ├── silver/
-│   └── gold/
-└── notebooks/
-    └── preprocessing_layer.ipynb
+AIRBNB_INVESTMENT_DB
+├── BRONZE
+├── SILVER
+└── GOLD
+
+DATA WAREHOUSES
+├── AIRBNB_DEV_WH    (dev / ETL)
+└── AIRBNB_APP_WH    (querying / app)
 ```
 
 ---
 
-## What each folder is for
+# Data Ingestion (Bronze)
 
-### `CHEATSHEET.md`
+Raw Airbnb files live in an **AWS S3 bucket** and are read by Snowflake through a
+**storage integration** (no AWS keys are stored in Snowflake). A quarterly Lambda drops each
+new snapshot into S3; the loader picks up the latest one automatically.
 
-This file contains quick copy-and-paste commands for the team.
+### S3 layout the loader expects
 
-Use this file when you need commands for:
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/
+└── <city>/
+    └── snapshot_date=<YYYY-MM-DD>/
+        ├── listings/listings.csv.gz
+        ├── calendar/calendar.csv.gz
+        ├── reviews/reviews.csv.gz
+        ├── neighbourhoods/neighbourhoods.csv
+        └── neighbourhoods_geojson/neighbourhoods.geojson
+```
 
-* setting up the project
-* activating the virtual environment
-* installing requirements
-* running notebooks
-* using Git
-* pulling and pushing changes
+### Step 1 — One-time setup (run once per account)
 
-The cheat sheet is for quick daily use.
+1. Run `etl/ingestion_layer/01_bronze_ddl.sql` (as `ACCOUNTADMIN`). It creates:
+   - the CSV + GeoJSON file formats,
+   - the `AIRBNB_S3_INT` storage integration,
+   - the external stage `BRONZE.RAW_STAGE` (points at the bucket above),
+   - the `BRONZE.LOAD_AUDIT` table.
+
+2. Complete the **AWS IAM trust handshake** (the part only AWS can do):
+   ```sql
+   DESC INTEGRATION AIRBNB_S3_INT;
+   ```
+   Copy `STORAGE_AWS_IAM_USER_ARN` and `STORAGE_AWS_EXTERNAL_ID` into the **trust policy** of
+   the IAM role `snowflake-airbnb-s3-read` (template is in the `2c` comment block of the DDL).
+   The role's read-only S3 **permission** policy must cover the bucket
+   (`s3:GetObject`/`s3:GetObjectVersion` on `.../raw/*`, `s3:ListBucket` on the bucket).
+
+3. Verify Snowflake can read S3:
+   ```sql
+   LIST @AIRBNB_INVESTMENT_DB.BRONZE.RAW_STAGE/london/;
+   ```
+   You should see the `snapshot_date=.../` files. If you get
+   *"bucket does not exist or not authorized"*, the trust/permission policy or bucket name is
+   wrong — fix that before loading.
+
+### Step 2 — Load the data (run every time)
+
+Run `etl/ingestion_layer/02_bronze_load.py`. For each city × dataset it:
+
+- resolves that city's **latest** `snapshot_date=` folder automatically,
+- creates the `RAW_*` table (CSV columns are loaded as TEXT — faithful, never fails),
+- `COPY`s the file in, and records the outcome in `BRONZE.LOAD_AUDIT`.
+
+It prints a per-file summary and a final row count per table. Bronze tables are rebuilt on
+every run; `LOAD_AUDIT` history accumulates.
 
 ---
 
-### `README.md`
+# Land Registry Price Paid (Bronze)
 
-This is the main project guide.
+A **second, independent source**: UK **HM Land Registry Price Paid Data** (residential sales),
+one CSV per year for **2021 to present**. It lands in the same bucket under a different prefix
+and reuses the existing `AIRBNB_S3_INT` integration — **no new integration or IAM handshake**
+(the role just needs `s3:ListBucket`/`s3:GetObject` on `raw/*`). A monthly Lambda refreshes the
+current-year file.
 
-It explains:
+### S3 layout
 
-* what the project is about
-* how the repository is structured
-* how to set up the project
-* how the data pipeline works
-* how the team should collaborate
+```text
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/hm_land_registry/price_paid/
+└── year=<YYYY>/pp-<YYYY>.csv
+```
 
-The README should be the first file a new team member reads.
+The files have **no header row** and a fixed **16-column** layout, so this source does *not*
+use the manifest/`MATCH_BY_COLUMN_NAME` loader. Instead it uses a dedicated pair of SQL files
+with **positional** column mapping (`$1..$16`).
+
+### Step 1 — One-time setup
+
+Run `etl/ingestion_layer/03_land_registry_ddl.sql` (as `ACCOUNTADMIN`). It creates:
+- `BRONZE.CSV_NOHDR_FF` — a headerless CSV file format,
+- `BRONZE.LAND_REGISTRY_STAGE` — external stage on the `hm_land_registry/price_paid/` prefix.
+
+Verify Snowflake can read S3: `LIST @BRONZE.LAND_REGISTRY_STAGE;` (should list `pp-<YYYY>.csv`).
+
+### Step 2 — Load (run every time)
+
+Run `etl/ingestion_layer/04_land_registry_load.sql`. It:
+- rebuilds `BRONZE.RAW_PRICE_PAID` (16 columns as TEXT + `_FILENAME`/`_FILE_ROW_NUMBER`/`_LOAD_TS`),
+- `COPY`s all `pp-<YYYY>.csv` files (`PATTERN` excludes the `_manifests/` JSON),
+- records the outcome in `BRONZE.LOAD_AUDIT` (sourced from `COPY_HISTORY`, robust to re-runs).
+
+The table is rebuilt each run, so re-running after the monthly refresh is **idempotent** — no
+duplicate rows. All columns stay TEXT (faithful Bronze); typing happens in SILVER.
 
 ---
 
-## Data folder
+# Configuring what gets ingested
 
-The `data/` folder stores the datasets used and produced by the project.
+The **silver layer** turns the faithful, all-TEXT `BRONZE.RAW_*` tables into typed,
+validated, analysis-ready `SILVER.*_CLEANED` tables. It lives in `etl/cleaning_layer/`
+and is driven by a single Python file.
 
-This project uses three main data layers:
+### Prerequisites
+
+1. Bronze must be loaded first — run `etl/ingestion_layer/02_bronze_load.py`.
+2. The `AIRBNB_INVESTMENT_DB` database and a warehouse exist (`setup/run_setup.py`).
+
+### How to run
+
+Open `etl/cleaning_layer/cleaning_layer.py` in a Snowflake Workspace and run it.
+It uses Snowpark's `get_active_session()` (no credentials needed) and executes, in order:
+
+1. `01_silver_ddl.sql` — creates the `SILVER` schema and the `SILVER.CLEAN_AUDIT` table.
+2. `02_silver_listings.sql` → `14_silver_neighbourhood_ons_area_map.sql` — one cleaning transform
+   each (listings, calendar, reviews, neighbourhoods, neighbourhoods-geo, price-paid, POI,
+   code-point, property-group map, amenities, postcode→neighbourhood map, ONS private rents,
+   neighbourhood→ONS-area crosswalk).
+
+### What it produces
 
 ```text
-data/
-├── bronze/
-├── silver/
-└── gold/
+AIRBNB_INVESTMENT_DB.SILVER
+├── LISTINGS_CLEANED              # from BRONZE.RAW_LISTINGS
+├── CALENDAR_CLEANED             # from BRONZE.RAW_CALENDAR
+├── REVIEWS_CLEANED              # from BRONZE.RAW_REVIEWS
+├── NEIGHBOURHOODS_CLEANED       # from BRONZE.RAW_NEIGHBOURHOODS
+├── NEIGHBOURHOODS_GEO_CLEANED   # from BRONZE.RAW_NEIGHBOURHOODS_GEO (GeoJSON -> GEOGRAPHY)
+├── PRICE_PAID_CLEANED           # from BRONZE.RAW_PRICE_PAID (HM Land Registry; London/Manchester/Bristol only)
+├── POI_CLEANED                  # from BRONZE.RAW_OVERTURE_POI (investment-relevant amenities + GEOGRAPHY)
+├── CODE_POINT_CLEANED           # from BRONZE.RAW_CODE_POINT (postcodes -> normalized POSTCODE_KEY)
+├── PROPERTY_GROUP_MAP           # property_type -> property_group lookup
+├── LISTING_AMENITIES            # from BRONZE.RAW_LISTINGS (exploded listing × amenity, classified)
+├── POSTCODE_NEIGHBOURHOOD_MAP   # postcode -> neighbourhood spatial bridge (point-in-polygon)
+├── ONS_PRIVATE_RENT_CLEANED     # from BRONZE.RAW_ONS_PRIVATE_RENT (tidy-long rent panel; London/Manchester/Bristol)
+├── NEIGHBOURHOOD_ONS_AREA_MAP   # neighbourhood -> ONS area crosswalk (exact/broadcast rent_grain)
+└── CLEAN_AUDIT                  # one row per table per run (rows in/out/dropped)
 ```
+
+> **`PRICE_PAID_CLEANED` specifics.** HM Land Registry Price Paid sales, typed and decoded
+> (property type, tenure, build status, PPD category as readable labels), deduped by
+> transaction id. It is **restricted at clean time** to the three investment areas —
+> `COUNTY IN ('GREATER LONDON', 'GREATER MANCHESTER', 'CITY OF BRISTOL')` — where
+> `GREATER LONDON` covers *all* of London (City of London is a district within it). A
+> deterministic `quality_flag` column marks each row `ok` (~80%, arm's-length market sale),
+> `non_standard` (~20%, PPD category B — repossessions, portfolio/company transfers), or
+> `price_suspect` (<0.1%, price outside £10k–£20M sanity bounds). Filter
+> `WHERE quality_flag = 'ok'` for true market price stats. Because the county filter runs
+> inside the transform, this table's `CLEAN_AUDIT.ROWS_DROPPED` is large (~4.4M) by design —
+> that is the non-target counties plus validation.
+
+Each `*_CLEANED` table is rebuilt (`CREATE OR REPLACE`) on every run; `CLEAN_AUDIT`
+accumulates history.
+
+### Cleaning principles
+
+- **`TRY_CAST` everywhere** — a bad value becomes a countable `NULL`, never a lost row.
+- **Parse dirty strings** — price `"$1,250.00"` → `1250.00`, rates `"95%"` → `95`, flags `"t"/"f"` → `TRUE/FALSE`.
+- **Deduplicate** — one row per natural key (latest load wins, via `QUALIFY ROW_NUMBER()`).
+- **Validate** — drop rows with no usable id or impossible coordinates.
+- **Carry every bronze column** plus `_FILENAME` / `_LOAD_TS` lineage for traceability.
+
+### Auditing a run
+
+```sql
+SELECT * FROM AIRBNB_INVESTMENT_DB.SILVER.CLEAN_AUDIT ORDER BY CLEAN_TS DESC;
+```
+
+`ROWS_DROPPED = ROWS_IN - ROWS_OUT` captures everything removed by validation + dedup,
+so silently filtered rows leave a durable, queryable trace.
+
+### Adding a new cleaning transform
+
+1. Write `etl/cleaning_layer/0N_silver_<table>.sql` (a `CREATE OR REPLACE TABLE ... AS SELECT`).
+2. Add one `(source, target, sql)` entry to the `TRANSFORMS` list in `cleaning_layer.py`.
+
+That's it — the driver runs it in order and records its audit row automatically.
 
 ---
 
-## Bronze layer
+# Silver → Gold (Aggregation) — User Guide
+
+The **gold layer** turns the clean `SILVER.*_CLEANED` tables into the **app-ready** GOLD
+schema: a Kimball **star** (dimensions + facts) plus **denormalised marts** the app reads
+directly. It lives in `etl/aggregation_layer/` and is driven by a single Python file.
+
+### Prerequisites
+
+1. Silver must be built first — run `etl/cleaning_layer/cleaning_layer.py`.
+2. **Change tracking must be enabled** on the SILVER source tables that feed the dynamic
+   tables, or the refresh fails with *"Change tracking is not enabled..."*:
+   ```sql
+   ALTER TABLE SILVER.LISTINGS_CLEANED           SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.CALENDAR_CLEANED           SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.POI_CLEANED                SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.NEIGHBOURHOODS_GEO_CLEANED SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.ONS_PRIVATE_RENT_CLEANED   SET CHANGE_TRACKING = TRUE;
+   ALTER TABLE SILVER.NEIGHBOURHOOD_ONS_AREA_MAP SET CHANGE_TRACKING = TRUE;
+   ```
+
+### How to run
+
+Open `etl/aggregation_layer/aggregation_layer.py` in a Snowflake Workspace and run it. It
+uses `get_active_session()` (no credentials) on `AIRBNB_APP_WH` and executes, in order:
+
+1. `01_dimensions.sql` — conformed dimensions + generated `DIM_DATE`.
+2. `02_facts.sql` — facts at listing / listing×date grain.
+3. `03_app_marts.sql` — the app-facing consumer marts.
+
+It prints a `COUNT(*)` for every object it builds.
+
+### What it produces
 
 ```text
-data/bronze/
+AIRBNB_INVESTMENT_DB.GOLD
+├── DIM_LISTING            # one row per listing (+ GEO_POINT, STRUCTURE_CLASS, PROPERTY_GROUP)
+├── DIM_HOST               # one row per host
+├── DIM_NEIGHBOURHOOD      # one row per neighbourhood (+ CITY, BOUNDARY geography, AREA_SQKM)
+├── DIM_PROPERTY_GROUP     # the 7 property groups (selection lookup)
+├── DIM_POI                # points of interest (+ LOCATION geography)
+├── DIM_DATE               # generated calendar dimension (static table)
+├── FCT_LISTING_SNAPSHOT   # per-listing investment metrics (ADR, occupancy, revenue, RevPAR)
+├── FCT_CALENDAR_DAILY     # daily availability per listing (listing × date)
+├── FCT_LISTING_POI        # POI proximity counts per listing (500m)
+├── FCT_AREA_SALE_PRICE    # median/avg sale price per neighbourhood × structure_class (HM Land Registry)
+├── FCT_AREA_RENT          # observed ONS rent per neighbourhood × category (overall/structure/bedroom)
+│
+├── MART_LISTING_CANDIDATES # APP: denormalised per-listing (detail + comparison screens)
+├── MART_AREA_OVERVIEW      # APP: per-neighbourhood summary + map boundary (area overview)
+├── MART_PROPERTY_GROUP     # APP: neighbourhood × property group (+ median sale-price cost)
+├── MART_AREA_POI           # APP: per-POI map markers inside each neighbourhood
+├── MART_AREA_STRATEGY      # APP: ST (Airbnb) vs LT (let) gross-yield per neighbourhood × structure_class
+└── MART_AREA_STRATEGY_BEDROOMS # APP: the same ST-vs-LT comparison, faceted by bedroom bucket
 ```
 
-The bronze layer stores the first official version of the data after loading it into the project.
+### How the app consumes it
 
-This data is usually close to the original source, with only light changes such as:
+The app reads the **GOLD marts only** (`MART_*`), on `AIRBNB_APP_WH`, with **no
+query-time joins** — the marts are already denormalised, one per screen:
 
-* standardising column names
-* adding ingestion dates
-* converting files into a consistent format
-* applying basic schema checks
+| Screen | Mart |
+|--------|------|
+| Home (KPIs + maximiser leaderboards) | `MART_AREA_OVERVIEW` + `MART_LISTING_CANDIDATES` |
+| Area Overview (stats + map) | `MART_AREA_OVERVIEW` + `MART_AREA_POI` (map markers) |
+| Property selection (per group + cost) | `MART_PROPERTY_GROUP` |
+| Listing Comparison | `MART_LISTING_CANDIDATES` |
+| Area Strategy (ST vs LT yield, incl. by bedroom) | `MART_AREA_STRATEGY` + `MART_AREA_STRATEGY_BEDROOMS` |
 
-Bronze data answers:
+Three usage notes:
+- **`HAS_REVENUE_DATA`** — 34% of listings have no `price`/revenue in the source scrape.
+  Filter `WHERE HAS_REVENUE_DATA = TRUE` for any revenue-ranked view; the flag keeps the
+  rest visible without fabricating numbers.
+- **Cost benchmark** — `AREA_MEDIAN_SALE_PRICE` (listing) and `MEDIAN_SALE_PRICE` (area)
+  come from HM Land Registry, matched by neighbourhood × Flat/House.
+- **Long-term rent (ONS)** — `MART_AREA_STRATEGY(_BEDROOMS)` now compare short-term (Airbnb)
+  vs long-term (let) **gross yield** using *observed* ONS rents (`GOLD.FCT_AREA_RENT`), not a
+  flat per-city assumption. `LT_GROSS_YIELD_PCT = ONS annual rent / median sale price`, and
+  `LT_RENT_SOURCE` flags each row `observed` or `assumed` (the per-city assumption is the
+  documented fallback where ONS has no figure — e.g. City of London, or Studio/Unknown bedroom
+  buckets). ONS is local-authority grain, so `FCT_AREA_RENT.RENT_GRAIN` marks whether a rent is
+  `exact` (London borough / GM district) or `broadcast` (shared across Manchester/Bristol wards).
 
-> What data did we receive from the original source?
+### Refresh model
 
-Example files:
+Gold uses **dynamic tables** so Snowflake refreshes incrementally. The **marts** carry the
+explicit `TARGET_LAG = '1 day'` freshness anchor; the upstream **dims/facts** use
+`TARGET_LAG = DOWNSTREAM` and refresh only as needed to serve the marts.
+(`FCT_CALENDAR_DAILY` keeps its own `'1 day'` lag as nothing consumes it yet.)
 
-```text
-data/bronze/airbnb_listings.csv
-data/bronze/airbnb_reviews.csv
-data/bronze/crime_data.csv
-data/bronze/house_prices.csv
-```
+### Adding a new gold object
 
-The bronze layer should not contain heavily cleaned or final analysis-ready data.
+1. Add the `CREATE OR REPLACE DYNAMIC TABLE ...` to the relevant SQL file
+   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts.sql`).
+2. Add its fully-qualified name to that step's `produces` list in `aggregation_layer.py`
+   so the runner verifies its row count.
 
 ---
 
-## Silver layer
-
-```text
-data/silver/
-```
-
-The silver layer stores cleaned and validated data.
-
-This is where the main preprocessing work happens.
-
-The silver layer may include:
-
-* removed duplicates
-* fixed missing values
-* corrected data types
-* cleaned date columns
-* standardised area names
-* cleaned location fields
-* joined lookup tables
-* created useful features
-
-Silver data answers:
-
-> Is the data clean and ready for analysis?
-
-Example files:
-
-```text
-data/silver/listings_cleaned.csv
-data/silver/reviews_cleaned.csv
-data/silver/crime_cleaned.csv
-data/silver/house_prices_cleaned.csv
-```
-
-The silver layer can be used for analysis, modelling, and enrichment.
-
----
-
-## Gold layer
-
-```text
-data/gold/
-```
-
-The gold layer stores the final app-ready or dashboard-ready outputs.
-
-This is the data that should be used by the final Airbnb Investment App or dashboard.
-
-The gold layer may include:
-
-* final joined datasets
-* area-level summaries
-* investment scores
-* ranking tables
-* final reporting CSV files
-* app-ready datasets
-
-Gold data answers:
-
-> What data does the app need to show the user?
-
-Example files:
-
-```text
-data/gold/app_ready_dataset.csv
-data/gold/investment_scores.csv
-data/gold/area_summary.csv
-```
-
-The app should mainly read from the gold layer, not from bronze or silver.
-
----
-
-## Notebooks folder
-
-```text
-notebooks/
-└── preprocessing_layer.ipynb
-```
-
-> **New to the project?** Read [docs/what_is_src.md](docs/what_is_src.md) for a beginner-friendly
-> explanation of the `src/` folder and how it is used at each stage of the pipeline.
-
-The `notebooks/` folder stores Jupyter notebooks used for data processing and analysis.
-
-Currently, the project has one notebook:
-
-```text
-preprocessing_layer.ipynb
-```
-
-This notebook should contain the steps used to move data through the pipeline.
-
-For example:
-
-```text
-bronze data → cleaning/preprocessing → silver data → aggregation/scoring → gold data
-```
-
-As the project grows, the team may split this into multiple notebooks:
-
-```text
-notebooks/
-├── 01_ingestion_bronze.ipynb
-├── 02_cleaning_silver.ipynb
-├── 03_enrichment_silver.ipynb
-└── 04_gold_export.ipynb
-```
-
-For now, keeping one `preprocessing_layer.ipynb` is fine if the project is still small.
-
----
-
-## Recommended data flow
-
-The project should follow this flow:
-
-```text
-Raw/source data
-      ↓
-Bronze layer
-      ↓
-Silver layer
-      ↓
-Gold layer
-      ↓
-App / dashboard / final analysis
-```
-
-In simple terms:
-
-```text
-bronze = original or lightly standardised data
-silver = cleaned and validated data
-gold = final app-ready data
-```
-
----
-
-## Team rule
-
-Each team member should understand which layer they are working on before editing files.
-
-A simple rule is:
-
-```text
-Do not overwrite bronze data.
-Cleaned data goes into silver.
-Final app-ready data goes into gold.
-Temporary test files go into interim.
-```
-
-This keeps the project organised and prevents confusion when multiple people are working on the same repository.
-
-
-------------------------------------------------------------------------------
-
-
-# Airbnb Investment App - Repository Setup Guide
-
-This repository is for the Airbnb Investment App project.
-
-The purpose of this guide is to explain which files should be committed to GitHub and which files should be ignored using `.gitignore`.
-
-## Why use `.gitignore`?
-
-A `.gitignore` file tells Git which files and folders should **not** be uploaded to GitHub.
-
-This is useful because some files are:
-
-- temporary
-- private
-- too large
-- automatically generated
-- specific to your own laptop
-- easy to recreate by running the code again
-
-For this project, we should commit code, documentation, notebooks, and small reusable files. We should avoid committing private files, virtual environments, raw data, and temporary outputs.
-
----
-
-## Python files and folders
-
-### `__pycache__/`
-
-Python automatically creates `__pycache__` folders when you run `.py` files.
-
-These folders contain compiled versions of your Python code. They help Python run files slightly faster, but they are not needed in GitHub.
-
-They can be safely ignored because Python will recreate them automatically.
-
-```gitignore
-__pycache__/
-```
-
----
-
-### `.venv/`
-
-The `.venv` folder is your local Python virtual environment.
-
-It contains installed packages such as:
-
-- pandas
-- numpy
-- streamlit
-- scikit-learn
-- matplotlib
-
-This folder can become very large and may only work properly on your own laptop.
-
-Instead of uploading `.venv`, we should upload a `requirements.txt` file so other team members can recreate the environment.
-
-Example:
-
-```bash
-pip install -r requirements.txt
-```
-
-Ignore:
-
-```gitignore
-.venv/
-```
-
-Commit instead:
-
-```text
-requirements.txt
-```
-
----
-
-### `.env`
-
-The `.env` file is used to store private information such as:
-
-- API keys
-- passwords
-- database URLs
-- secret tokens
-
-Example:
-
-```env
-OPENAI_API_KEY=your_api_key_here
-DATABASE_PASSWORD=your_password_here
-```
-
-This should **never** be committed to GitHub, even if the repository is private.
-
-Ignore:
-
-```gitignore
-.env
-```
-
-A safer option is to commit a template file called:
-
-```text
-.env.example
-```
-
-Example `.env.example`:
-
-```env
-OPENAI_API_KEY=add_your_key_here
-DATABASE_URL=add_database_url_here
-```
-
----
-
-## Data files and folders
-
-### `data/`
-
-The `data/` folder should store original downloaded datasets.
-
-Examples:
-
-```text
-data/bronze/airbnb_listings.csv
-data/bronze/airbnb_reviews.csv
-data/bronze/crime_data.csv
-data/bronze/house_prices.csv
-```
-
-Raw data can be large and may not need to be stored in GitHub.
-
-Instead, we should document where the data came from in:
-
-```text
-docs/data_sources.md
-```
-
-Ignore:
-
-```gitignore
-data/
-```
-
-
----
-
-### CSV files
-
-CSV files are common data files.
-
-Examples:
-
-```text
-airbnb_reviews.csv
-crime_data.csv
-final_output.csv
-```
-
-Be careful with ignoring all CSV files.
-
-This rule ignores every CSV file in the repository:
-
-```gitignore
-*.csv
-```
-
-For this project, that may be too broad because we may want to commit a small sample CSV or final app-ready CSV.
-
-A better approach is to only ignore CSV files in raw and interim folders:
-
-```gitignore
-data/raw/*.csv
-data/interim/*.csv
-```
-
-This means raw and temporary CSV files are ignored, but useful sample files can still be committed elsewhere.
-
----
-
-### Parquet files
-
-Parquet is a data storage format often used for processed datasets.
-
-Examples:
-
-```text
-crime_cleaned.parquet
-reviews_processed.parquet
-airbnb_features.parquet
-```
-
-Parquet files are often generated outputs and can be large.
-
-A sensible rule is:
-
-```gitignore
-data/raw/*.parquet
-data/interim/*.parquet
-```
-
-This ignores raw and temporary Parquet files while still allowing the team to commit small selected files if needed.
-
-
-
-## Recommended project folders to commit
-
-These folders should usually be committed to GitHub:
-
-```text
-notebooks/
-src/
-docs/
-app/
-tests/
-requirements.txt
-README.md
-.gitignore
-```
-
-These contain the important project work: code, documentation, notebooks, tests, and setup files.
-
----
-
-## Recommended project folders to ignore
-
-These should usually be ignored:
-
-```text
-.venv/
-.env
-__pycache__/
-data/
-.DS_Store
-```
-
-These are local, private, temporary, or generated files.
-
----
-
-## Suggested workflow for the team
-
-1. Keep source code in `src/`
-2. Keep notebooks in `notebooks/`
-3. Keep documentation in `docs/`
-4. Keep raw downloaded data in `data/bronze/`
-5. Keep temporary processed data in `data/silver/`
-6. Keep final selected outputs in `data/gold/`
-7. Do not commit API keys, passwords, or virtual environments
-8. Use branches for separate work
-9. Merge work into `main` using pull requests
-
----
-
-## If a folder was already committed before being ignored
-
-Adding a folder to `.gitignore` does not automatically remove it from Git tracking if it was already committed.
-
-To stop tracking a folder without deleting it from your laptop:
-
-```bash
-git rm -r --cached folder_name/
-```
-
-Example:
-
-```bash
-git rm -r --cached .venv/
-```
-
-Then commit the change:
-
-```bash
-git add .gitignore
-git commit -m "Add gitignore rules"
-git push
-```
-
----
-
-## Summary
-
-The main rule is:
-
-> Commit files that help the team understand, run, and improve the project. Ignore files that are private, temporary, large, or automatically generated.
-
-For this Airbnb Investment App, the most important files to commit are the app code, notebooks, documentation, requirements file, README, and `.gitignore`.
-
-
-------------------------------------------------------------------------------
-
-
-# Team Cheat Sheet
-
-This project includes a separate Markdown file called:
-
-```text
-CHEATSHEET.md
-```
-
-The cheat sheet is designed to help team members quickly copy and paste the most common commands needed to run and work on the project.
-
-Instead of searching through the full README every time, team members can open `CHEATSHEET.md` and find the essential commands for:
-
-* cloning the repository
-* creating and activating the virtual environment
-* installing requirements
-* running notebooks
-* running the Streamlit app
-* using Git branches
-* pulling the latest changes
-* committing work
-* pushing work to GitHub
-
-
-## When to use the cheat sheet
-
-Use `CHEATSHEET.md` when you just need a quick command to copy and paste.
-
-For example:
-
-```bash
-git pull origin main
-```
-
-```bash
-source .venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
-```
-
-```bash
-streamlit run app/main.py
-```
-
-## Important
-
-The cheat sheet should only contain commands that are safe and useful for the team.
-
-Avoid adding commands that could accidentally delete work, reset branches, remove files, or overwrite someone else’s changes unless they are clearly explained.
-
-For example, be careful with commands such as:
-
-```bash
-git reset --hard
-```
-
-```bash
-git clean -fd
-```
-
-```bash
-rm -rf
-```
-
-These commands can permanently remove local changes or files if used incorrectly.
-
-## Recommended file structure
-
-```text
-airbnb-investment-app/
-├── README.md
-├── CHEATSHEET.md
-├── requirements.txt
-├── .gitignore
-├── notebooks/
-├── src/
-├── app/
-├── data/
-└── docs/
-```
-
-## Summary
-
-The cheat sheet is the quick copy-and-paste command guide.
-
-Both files should be kept updated as the project changes.

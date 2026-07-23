@@ -1,3 +1,8 @@
+# Property Types page: ranks property/bedroom combos and shows a cached-or-generated AI recommendation.
+# Co-authored with CoCo
+import os
+import sys
+
 import streamlit as st
 import pandas as pd
 import json
@@ -5,6 +10,14 @@ import time
 import altair as alt
 from db import get_session
 from nav import render_breadcrumb
+
+# Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
+_SCRIPTS_AI = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "ai")
+)
+if _SCRIPTS_AI not in sys.path:
+    sys.path.insert(0, _SCRIPTS_AI)
+import property_type_helper as pth
 st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -260,7 +273,6 @@ st.markdown(
 )
 
 render_breadcrumb("property_types")
-
 def format_money(value):
     if pd.isna(value):
         return "N/A"
@@ -379,18 +391,7 @@ def load_property_types(_session):
             """
     ).to_pandas()
 
-@st.cache_data(ttl=300)
-def load_summary(_session):
-    return _session.sql(
-        """
-        SELECT *
-        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
-    """
-    ).to_pandas()
-
 property_types = load_property_types(session)
-
-ai_summary = load_summary(session)
 
 #VISUALISATIONS ---
 starred_neighbourhoods = st.session_state["starred_neighbourhoods"]
@@ -774,16 +775,20 @@ with st.bottom:
 
         st.header(selected_neighbourhood)
 
-        mask = (
-            (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
-            & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
-            & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
-        )
+        # Always show the live recommendation from the helper: it checks
+        # PROPERTY_TYPE_CACHE and generates via Gemini on a miss.
+        api_key = st.secrets.get("gemini", {}).get("api_key")
+        with st.spinner("Generating AI recommendation..."):
+            narrative_json = pth.get_or_generate_recommendation(
+                session,
+                api_key,
+                selected_city,
+                selected_neighbourhood,
+                str(persona).upper(),
+            )
 
-        matches = ai_summary.loc[mask, "ai_narrative"]
-
-        if not matches.empty:
-            narrative_dict = json.loads(matches.iloc[0])
+        if narrative_json is not None:
+            narrative_dict = json.loads(narrative_json)
 
             recommendation_summary = narrative_dict.get(
                 "recommendation_summary",

@@ -4,3 +4,4 @@ pandas
 pydeck
 altair
 cryptography
+google-generativeai>=0.8

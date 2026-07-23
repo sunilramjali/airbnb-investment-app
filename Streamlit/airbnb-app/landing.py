@@ -1,3 +1,5 @@
+# Streamlit landing page: investor persona selection and navigation.
+# Co-authored with CoCo
 # Import python packages
 import streamlit as st
 from db import get_session

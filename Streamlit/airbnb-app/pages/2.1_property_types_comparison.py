@@ -1,9 +1,23 @@
+# Property Types Comparison page: charts + persona-based AI comparison across 3 starred property/bedroom picks.
+# Co-authored with CoCo
+import os
+import sys
+import json
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 from streamlit.components.v1 import html
 from db import get_session
 from nav import render_logo
+
+# Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
+_SCRIPTS_AI = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "ai")
+)
+if _SCRIPTS_AI not in sys.path:
+    sys.path.insert(0, _SCRIPTS_AI)
+import property_types_comparison_helper as ptch
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -871,14 +885,99 @@ with occupancy_col:
             )
             st.altair_chart(occupancy_chart, use_container_width=True)
 
-#AI SUMMARY GOES HERE
-#with ai_col:
-
-# In print mode, auto-open the browser print dialog once the charts above
-# have rendered. All non-chart sections are already hidden in print mode.
-if print_mode:
-    html(
-        "<script>setTimeout(function(){ window.parent.print(); }, 1200);</script>",
-        height=0
+#AI SUMMARY
+# In-memory cache (per running app) layered on the persistent Snowflake
+# PROPERTY_COMPARISON_CACHE table. Leading-underscore args are skipped by
+# Streamlit's hasher; combos is a tuple so it hashes.
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_cached_comparison(_session, _api_key, city, combos, persona):
+    selections = [
+        {"neighbourhood": n, "structure_class": s, "bedroom_bucket": b}
+        for (n, s, b) in combos
+    ]
+    return ptch.get_or_generate_comparison(
+        _session,
+        _api_key,
+        city,
+        selections,
+        persona,
     )
+
+
+st.divider()
+
+with st.container(border=True):
+
+    st.markdown("### AI Comparison: Property Types")
+
+    st.caption(
+        "Persona-based short-term vs long-term and seasonality summary "
+        "across your 3 selected property and bedroom combinations."
+    )
+
+    persona = st.session_state.get("persona")
+    api_key = st.secrets.get("gemini", {}).get("api_key")
+
+    comparison_city = starred_property_types[0]["city"]
+    comparison_combos = tuple(
+        (
+            str(item["neighbourhood"]),
+            str(item["structure_class"]),
+            str(item["bedroom_group"]),
+        )
+        for item in starred_property_types[:3]
+    )
+
+    if persona is None:
+        st.info("Select a persona on the landing page to enable the AI summary.")
+    elif not api_key:
+        st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
+    else:
+        if st.button("Generate AI summary", use_container_width=True):
+
+            try:
+                with st.spinner("Generating AI comparison..."):
+                    narrative_json = get_cached_comparison(
+                        session,
+                        api_key,
+                        comparison_city,
+                        comparison_combos,
+                        persona.upper(),
+                    )
+            except Exception as e:
+                narrative_json = None
+                st.error(f"AI comparison failed: {e}")
+
+            if narrative_json is None:
+                st.info(
+                    "Not enough comparable data for these combinations "
+                    "to generate a summary."
+                )
+            else:
+                try:
+                    data = json.loads(narrative_json)
+                except (ValueError, TypeError):
+                    data = None
+
+                if data is None:
+                    st.write(narrative_json)
+                else:
+                    st.write(data.get("comparison_summary", ""))
+
+                    best = data.get("best_combination")
+                    if best:
+                        st.markdown(f"**Best fit: {best}**")
+                        st.write(data.get("best_combination_reason", ""))
+
+                    if data.get("st_vs_lt_insight"):
+                        st.markdown("**Short-term vs long-term**")
+                        st.write(data["st_vs_lt_insight"])
+
+                    if data.get("seasonality_verdict"):
+                        st.markdown("**Seasonal trend**")
+                        st.write(data["seasonality_verdict"])
+
+                    if data.get("what_to_avoid"):
+                        st.markdown("**What to avoid**")
+                        st.write(data["what_to_avoid"])
     

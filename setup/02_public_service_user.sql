@@ -36,6 +36,12 @@ GRANT SELECT ON FUTURE TABLES         IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROL
 GRANT SELECT ON FUTURE VIEWS          IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROLE AIRBNB_APP_PUBLIC_ROLE;
 GRANT SELECT ON FUTURE DYNAMIC TABLES IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROLE AIRBNB_APP_PUBLIC_ROLE;
 
+-- 3b. AI cache write exception -------------------------------------------------
+-- The role is otherwise read-only, but the ST vs LT AI comparison persists its
+-- generated narratives to this table so future sessions reuse them instead of
+-- re-calling Gemini. That requires INSERT on this one table.
+GRANT INSERT ON TABLE AIRBNB_INVESTMENT_DB.GOLD.ST_VS_LT_COMPARISON_CACHE TO ROLE AIRBNB_APP_PUBLIC_ROLE;
+
 -- 4. Bind role to the service user --------------------------------------------
 GRANT ROLE AIRBNB_APP_PUBLIC_ROLE TO USER AIRBNB_APP_SVC;
 
