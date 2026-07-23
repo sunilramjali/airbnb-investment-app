@@ -297,28 +297,30 @@ st.markdown(
         margin: 0 !important;
     }
 
-    /* Make bordered Streamlit containers printable */
+    /* Make bordered Streamlit containers printable.
+       Do NOT force break-inside: avoid on the whole wrapper — a tall
+       container that cannot fit on a page pushes to the next page and
+       leaves large whitespace. Page breaks are controlled per-chart below. */
     [data-testid="stVerticalBlockBorderWrapper"],
     [data-testid="stVerticalBlockBorderWrapper"] > div {
         background: #ffffff !important;
         background-color: #ffffff !important;
         border-color: #b0b0b0 !important;
         box-shadow: none !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
         display: block !important;
     }
 
-    /* Force Streamlit columns to fit the page */
+    /* Stack columns vertically so each chart prints full width instead of
+       being squeezed into narrow side-by-side halves that overflow. */
     [data-testid="stHorizontalBlock"] {
+        display: block !important;
         width: 100% !important;
-        gap: 12px !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
     }
 
     [data-testid="column"] {
+        width: 100% !important;
         min-width: 0 !important;
+        display: block !important;
     }
 
     /* Make Altair chart wrappers printable */
@@ -362,6 +364,12 @@ st.markdown(
 )
 
 print_mode = st.query_params.get("print") == "1"
+
+# Explicit chart dimensions for print/PDF export. In print mode columns are
+# stacked full width (see @media print CSS), so every chart uses a single wide,
+# fixed size that fits A4 landscape cleanly instead of scaling to screen width.
+PRINT_CHART_WIDTH = 950
+PRINT_CHART_HEIGHT = 300
 
 if not print_mode:
     render_logo()
@@ -1024,7 +1032,7 @@ with st.container(
                 .encode(
                     x=alt.X(
                         "AREA_LABEL:N",
-                        title="",
+                        title="Neighbourhood",
                         axis=alt.Axis(
                             labelAngle=-25,
                             labelColor="#000000",
@@ -1038,7 +1046,7 @@ with st.container(
 
                     y=alt.Y(
                         "ANNUAL_INCOME:Q",
-                        title="",
+                        title="Annual Income (£)",
                         axis=alt.Axis(
                             format=",.0f",
                             labelExpr="'£' + format(datum.value, ',.0f')",
@@ -1076,14 +1084,19 @@ with st.container(
                     ]
                 )
                 .properties(
-                    height=350,
+                    height=PRINT_CHART_HEIGHT if print_mode else 350,
                     background="#FFFFFF"
                 )
             )
 
+            if print_mode:
+                revenue_chart = revenue_chart.properties(
+                    width=PRINT_CHART_WIDTH
+                )
+
             st.altair_chart(
                 revenue_chart,
-                use_container_width=True
+                use_container_width=not print_mode
             )
 
 
@@ -1111,7 +1124,7 @@ with yield_col:
                 x=alt.X(
                     "AREA_LABEL:N",
                     axis=alt.Axis(
-                        title="",
+                        title="Neighbourhood",
                         labelAngle=-25,
                         labelColor="#000000",
                         titleColor="#000000"
@@ -1128,7 +1141,7 @@ with yield_col:
                         zero=True
                     ),
                     axis=alt.Axis(
-                        title="",
+                        title="Gross Yield (%)",
                         format=".1f",
                         labelExpr="datum.label + '%'",
                         labelColor="#000000",
@@ -1165,14 +1178,19 @@ with yield_col:
                 ]
             )
             .properties(
-                height=350,
+                height=PRINT_CHART_HEIGHT if print_mode else 350,
                 background="#FFFFFF"
             )
         )
 
+        if print_mode:
+            yield_chart = yield_chart.properties(
+                width=PRINT_CHART_WIDTH
+            )
+
         st.altair_chart(
             yield_chart,
-            use_container_width=True
+            use_container_width=not print_mode
         )
 
 # SEASONAL OCCUPANCY PATTERN
@@ -1288,14 +1306,19 @@ with occupancy_col:
                     ]
                 )
                 .properties(
-                    height=350,
+                    height=PRINT_CHART_HEIGHT if print_mode else 350,
                     background="#FFFFFF"
                 )
             )
     
+            if print_mode:
+                occupancy_chart = occupancy_chart.properties(
+                    width=PRINT_CHART_WIDTH
+                )
+
             st.altair_chart(
                 occupancy_chart,
-                use_container_width=True
+                use_container_width=not print_mode
             )
 
 #AI SUMMARY
@@ -1318,11 +1341,15 @@ with ai_col:
         ]
 
         if persona is None:
-            st.info("Select a persona on the landing page to enable the AI summary.")
+            if not print_mode:
+                st.info("Select a persona on the landing page to enable the AI summary.")
         elif not api_key:
-            st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
+            if not print_mode:
+                st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
         else:
-            if st.button("Generate AI summary", use_container_width=True):
+            # Auto-generate in print mode so the AI summary lands in the PDF
+            # without a manual click (buttons are hidden when printing).
+            if print_mode or st.button("Generate AI summary", use_container_width=True):
 
                 try:
                     with st.spinner("Generating AI comparison..."):
@@ -1372,11 +1399,12 @@ with ai_col:
 
 st.divider()
 
-# In print mode, only the charts above are shown: auto-open the browser
-# print dialog once they have rendered, then stop before the POI section.
+# In print mode only the labeled charts and the AI summary are shown: open the
+# browser print dialog once they have fully rendered (the AI text is generated
+# synchronously above, so it is already in the DOM), then stop.
 if print_mode:
     html(
-        "<script>setTimeout(function(){ window.parent.print(); }, 1200);</script>",
+        "<script>setTimeout(function(){ window.parent.print(); }, 1800);</script>",
         height=0
     )
     st.stop()

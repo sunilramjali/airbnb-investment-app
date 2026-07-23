@@ -294,28 +294,30 @@ st.markdown(
         margin: 0 !important;
     }
 
-    /* Make bordered Streamlit containers printable */
+    /* Make bordered Streamlit containers printable.
+       Do NOT force break-inside: avoid on the whole wrapper — a tall
+       container that cannot fit on a page pushes to the next page and
+       leaves large whitespace. Page breaks are controlled per-chart below. */
     [data-testid="stVerticalBlockBorderWrapper"],
     [data-testid="stVerticalBlockBorderWrapper"] > div {
         background: #ffffff !important;
         background-color: #ffffff !important;
         border-color: #b0b0b0 !important;
         box-shadow: none !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
         display: block !important;
     }
 
-    /* Force Streamlit columns to fit the page */
+    /* Stack columns vertically so each chart prints full width instead of
+       being squeezed into narrow side-by-side halves that overflow. */
     [data-testid="stHorizontalBlock"] {
+        display: block !important;
         width: 100% !important;
-        gap: 12px !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
     }
 
     [data-testid="column"] {
+        width: 100% !important;
         min-width: 0 !important;
+        display: block !important;
     }
 
     /* Make Altair chart wrappers printable */
@@ -359,6 +361,12 @@ st.markdown(
 )
 
 print_mode = st.query_params.get("print") == "1"
+
+# Explicit chart dimensions for print/PDF export. In print mode columns are
+# stacked full width (see @media print CSS), so every chart uses a single wide,
+# fixed size that fits A4 landscape cleanly instead of scaling to screen width.
+PRINT_CHART_WIDTH = 950
+PRINT_CHART_HEIGHT = 300
 
 if not print_mode:
     render_logo()
@@ -692,7 +700,7 @@ with st.container(border=True):
                 .encode(
                     x=alt.X(
                         "PROPERTY_LABEL:N",
-                        title="",
+                        title="Property Type",
                         axis=alt.Axis(
                             labelAngle=-25,
                             labelColor="#000000",
@@ -703,7 +711,7 @@ with st.container(border=True):
                     xOffset=alt.XOffset("STRATEGY:N"),
                     y=alt.Y(
                         "ANNUAL_INCOME:Q",
-                        title="",
+                        title="Annual Income (£)",
                         axis=alt.Axis(
                             format=",.0f",
                             labelExpr="'£' + format(datum.value, ',.0f')",
@@ -734,9 +742,11 @@ with st.container(border=True):
                         )
                     ]
                 )
-                .properties(height=350, background="#FFFFFF")
+                .properties(height=PRINT_CHART_HEIGHT if print_mode else 350, background="#FFFFFF")
             )
-            st.altair_chart(revenue_chart, use_container_width=True)
+            if print_mode:
+                revenue_chart = revenue_chart.properties(width=PRINT_CHART_WIDTH)
+            st.altair_chart(revenue_chart, use_container_width=not print_mode)
 
     with yield_col:
         st.markdown("#### Gross Yield")
@@ -749,7 +759,7 @@ with st.container(border=True):
                 .encode(
                     x=alt.X(
                         "PROPERTY_LABEL:N",
-                        title="",
+                        title="Property Type",
                         axis=alt.Axis(
                             labelAngle=-25,
                             labelColor="#000000",
@@ -760,7 +770,7 @@ with st.container(border=True):
                     xOffset=alt.XOffset("STRATEGY:N"),
                     y=alt.Y(
                         "GROSS_YIELD:Q",
-                        title="",
+                        title="Gross Yield (%)",
                         scale=alt.Scale(zero=True),
                         axis=alt.Axis(
                             format=".1f",
@@ -792,9 +802,11 @@ with st.container(border=True):
                         )
                     ]
                 )
-                .properties(height=350, background="#FFFFFF")
+                .properties(height=PRINT_CHART_HEIGHT if print_mode else 350, background="#FFFFFF")
             )
-            st.altair_chart(yield_chart, use_container_width=True)
+            if print_mode:
+                yield_chart = yield_chart.properties(width=PRINT_CHART_WIDTH)
+            st.altair_chart(yield_chart, use_container_width=not print_mode)
 
 st.divider()
 
@@ -881,9 +893,11 @@ with occupancy_col:
                         )
                     ]
                 )
-                .properties(height=400, background="#FFFFFF")
+                .properties(height=PRINT_CHART_HEIGHT if print_mode else 400, background="#FFFFFF")
             )
-            st.altair_chart(occupancy_chart, use_container_width=True)
+            if print_mode:
+                occupancy_chart = occupancy_chart.properties(width=PRINT_CHART_WIDTH)
+            st.altair_chart(occupancy_chart, use_container_width=not print_mode)
 
 #AI SUMMARY
 # In-memory cache (per running app) layered on the persistent Snowflake
@@ -929,11 +943,15 @@ with st.container(border=True):
     )
 
     if persona is None:
-        st.info("Select a persona on the landing page to enable the AI summary.")
+        if not print_mode:
+            st.info("Select a persona on the landing page to enable the AI summary.")
     elif not api_key:
-        st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
+        if not print_mode:
+            st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
     else:
-        if st.button("Generate AI summary", use_container_width=True):
+        # Auto-generate in print mode so the AI summary lands in the PDF
+        # without a manual click (buttons are hidden when printing).
+        if print_mode or st.button("Generate AI summary", use_container_width=True):
 
             try:
                 with st.spinner("Generating AI comparison..."):
@@ -980,4 +998,14 @@ with st.container(border=True):
                     if data.get("what_to_avoid"):
                         st.markdown("**What to avoid**")
                         st.write(data["what_to_avoid"])
+
+# In print mode only the labeled charts and the AI summary are shown: open the
+# browser print dialog once they have fully rendered (the AI text is generated
+# synchronously above, so it is already in the DOM), then stop.
+if print_mode:
+    html(
+        "<script>setTimeout(function(){ window.parent.print(); }, 1800);</script>",
+        height=0
+    )
+    st.stop()
     
