@@ -9,6 +9,7 @@ import json
 import time
 import altair as alt
 from db import get_session
+from nav import render_breadcrumb
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
