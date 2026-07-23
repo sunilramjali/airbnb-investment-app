@@ -294,10 +294,7 @@ st.markdown(
         margin: 0 !important;
     }
 
-    /* Make bordered Streamlit containers printable.
-       Do NOT force break-inside: avoid on the whole wrapper — a tall
-       container that cannot fit on a page pushes to the next page and
-       leaves large whitespace. Page breaks are controlled per-chart below. */
+    /* Bordered containers: white background, keep each section together. */
     [data-testid="stVerticalBlockBorderWrapper"],
     [data-testid="stVerticalBlockBorderWrapper"] > div {
         background: #ffffff !important;
@@ -307,16 +304,32 @@ st.markdown(
         display: block !important;
     }
 
-    /* Stack columns vertically so each chart prints full width instead of
-       being squeezed into narrow side-by-side halves that overflow. */
-    [data-testid="stHorizontalBlock"] {
-        display: block !important;
-        width: 100% !important;
+    /* Keep the ST-vs-LT charts side-by-side (both on page 1); just stop the
+       columns from overflowing the page width. */
+    [data-testid="column"] {
+        min-width: 0 !important;
     }
 
-    [data-testid="column"] {
-        width: 100% !important;
-        min-width: 0 !important;
+    /* Force each print section onto its own page:
+       Page 1 = ST vs LT, Page 2 = Seasonal trend, Page 3 = AI summary. */
+    .st-key-print_seasonal,
+    .st-key-print_ai {
+        break-before: page !important;
+        page-break-before: always !important;
+    }
+
+    .st-key-print_strategy,
+    .st-key-print_seasonal,
+    .st-key-print_ai {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
+    /* Marker-div fallback page break (works regardless of container-key support). */
+    .pagebreak {
+        break-before: page !important;
+        page-break-before: always !important;
+        height: 0 !important;
         display: block !important;
     }
 
@@ -362,10 +375,12 @@ st.markdown(
 
 print_mode = st.query_params.get("print") == "1"
 
-# Explicit chart dimensions for print/PDF export. In print mode columns are
-# stacked full width (see @media print CSS), so every chart uses a single wide,
-# fixed size that fits A4 landscape cleanly instead of scaling to screen width.
-PRINT_CHART_WIDTH = 950
+# Explicit chart dimensions for print/PDF export.
+# Strategy charts stay side-by-side on page 1, so each takes about half the
+# A4-landscape printable width. The seasonal chart is alone on page 2, so it
+# uses the full width.
+PRINT_STRATEGY_CHART_WIDTH = 440
+PRINT_WIDE_CHART_WIDTH = 950
 PRINT_CHART_HEIGHT = 300
 
 if not print_mode:
@@ -652,7 +667,7 @@ if not print_mode:
     st.divider()
 
 # SHORT-TERM VS LONG-TERM STRATEGY
-with st.container(border=True):
+with st.container(border=True, key="print_strategy"):
     st.markdown("### Short-Term vs Long-Term Strategy")
     st.caption(
         "Compare estimated annual income and gross yield for short-term "
@@ -745,7 +760,7 @@ with st.container(border=True):
                 .properties(height=PRINT_CHART_HEIGHT if print_mode else 350, background="#FFFFFF")
             )
             if print_mode:
-                revenue_chart = revenue_chart.properties(width=PRINT_CHART_WIDTH)
+                revenue_chart = revenue_chart.properties(width=PRINT_STRATEGY_CHART_WIDTH)
             st.altair_chart(revenue_chart, use_container_width=not print_mode)
 
     with yield_col:
@@ -805,16 +820,22 @@ with st.container(border=True):
                 .properties(height=PRINT_CHART_HEIGHT if print_mode else 350, background="#FFFFFF")
             )
             if print_mode:
-                yield_chart = yield_chart.properties(width=PRINT_CHART_WIDTH)
+                yield_chart = yield_chart.properties(width=PRINT_STRATEGY_CHART_WIDTH)
             st.altair_chart(yield_chart, use_container_width=not print_mode)
 
 st.divider()
 
-# SEASONAL OCCUPANCY
-occupancy_col, ai_col =st.columns([1,1])
+# SEASONAL OCCUPANCY + AI SUMMARY
+# In print mode, render these as full-width sections (each forced onto its own
+# page); on screen keep them side-by-side.
+if print_mode:
+    st.markdown("<div class='pagebreak'></div>", unsafe_allow_html=True)
+    occupancy_col = st.container()
+else:
+    occupancy_col, ai_col = st.columns([1, 1])
 
 with occupancy_col:
-    with st.container(border=True):
+    with st.container(border=True, key="print_seasonal" if print_mode else None):
         st.markdown("### Seasonal Occupancy Pattern")
         st.caption(
             "Compare monthly occupancy across the 3 selected property and "
@@ -896,7 +917,7 @@ with occupancy_col:
                 .properties(height=PRINT_CHART_HEIGHT if print_mode else 400, background="#FFFFFF")
             )
             if print_mode:
-                occupancy_chart = occupancy_chart.properties(width=PRINT_CHART_WIDTH)
+                occupancy_chart = occupancy_chart.properties(width=PRINT_WIDE_CHART_WIDTH)
             st.altair_chart(occupancy_chart, use_container_width=not print_mode)
 
 #AI SUMMARY
@@ -920,7 +941,13 @@ def get_cached_comparison(_session, _api_key, city, combos, persona):
 
 st.divider()
 
-with st.container(border=True):
+if print_mode:
+    st.markdown("<div class='pagebreak'></div>", unsafe_allow_html=True)
+    ai_container = st.container(border=True, key="print_ai")
+else:
+    ai_container = ai_col.container(border=True)
+
+with ai_container:
 
     st.markdown("### AI Comparison: Property Types")
 
