@@ -391,18 +391,7 @@ def load_property_types(_session):
             """
     ).to_pandas()
 
-@st.cache_data(ttl=300)
-def load_summary(_session):
-    return _session.sql(
-        """
-        SELECT *
-        FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
-    """
-    ).to_pandas()
-
 property_types = load_property_types(session)
-
-ai_summary = load_summary(session)
 
 #VISUALISATIONS ---
 starred_neighbourhoods = st.session_state["starred_neighbourhoods"]
@@ -786,26 +775,17 @@ with st.bottom:
 
         st.header(selected_neighbourhood)
 
-        mask = (
-            (ai_summary["persona"].astype(str).str.strip().str.lower() == str(persona).strip().lower())
-            & (ai_summary["neighbourhood_cleansed"].astype(str).str.strip().str.lower() == str(selected_neighbourhood).strip().lower())
-            & (ai_summary["output_type"].astype(str).str.strip().str.lower() == "recommendation")
-        )
-
-        matches = ai_summary.loc[mask, "ai_narrative"]
-
-        narrative_json = matches.iloc[0] if not matches.empty else None
-        if narrative_json is None:
-            # Cache miss in the preloaded AI_OUTPUTS snapshot — generate on demand.
-            api_key = st.secrets.get("gemini", {}).get("api_key")
-            with st.spinner("Generating AI recommendation..."):
-                narrative_json = pth.get_or_generate_recommendation(
-                    session,
-                    api_key,
-                    selected_city,
-                    selected_neighbourhood,
-                    str(persona).upper(),
-                )
+        # Always show the live recommendation from the helper: it checks
+        # PROPERTY_TYPE_CACHE and generates via Gemini on a miss.
+        api_key = st.secrets.get("gemini", {}).get("api_key")
+        with st.spinner("Generating AI recommendation..."):
+            narrative_json = pth.get_or_generate_recommendation(
+                session,
+                api_key,
+                selected_city,
+                selected_neighbourhood,
+                str(persona).upper(),
+            )
 
         if narrative_json is not None:
             narrative_dict = json.loads(narrative_json)
