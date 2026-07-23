@@ -297,28 +297,43 @@ st.markdown(
         margin: 0 !important;
     }
 
-    /* Make bordered Streamlit containers printable */
+    /* Bordered containers: white background, keep each section together. */
     [data-testid="stVerticalBlockBorderWrapper"],
     [data-testid="stVerticalBlockBorderWrapper"] > div {
         background: #ffffff !important;
         background-color: #ffffff !important;
         border-color: #b0b0b0 !important;
         box-shadow: none !important;
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
         display: block !important;
     }
 
-    /* Force Streamlit columns to fit the page */
-    [data-testid="stHorizontalBlock"] {
-        width: 100% !important;
-        gap: 12px !important;
+    /* Keep the ST-vs-LT charts side-by-side (both on page 1); just stop the
+       columns from overflowing the page width. */
+    [data-testid="column"] {
+        min-width: 0 !important;
+    }
+
+    /* Force each print section onto its own page:
+       Page 1 = ST vs LT, Page 2 = Seasonal trend, Page 3 = AI summary. */
+    .st-key-print_seasonal,
+    .st-key-print_ai {
+        break-before: page !important;
+        page-break-before: always !important;
+    }
+
+    .st-key-print_strategy,
+    .st-key-print_seasonal,
+    .st-key-print_ai {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
     }
 
-    [data-testid="column"] {
-        min-width: 0 !important;
+    /* Marker-div fallback page break (works regardless of container-key support). */
+    .pagebreak {
+        break-before: page !important;
+        page-break-before: always !important;
+        height: 0 !important;
+        display: block !important;
     }
 
     /* Make Altair chart wrappers printable */
@@ -362,6 +377,14 @@ st.markdown(
 )
 
 print_mode = st.query_params.get("print") == "1"
+
+# Explicit chart dimensions for print/PDF export.
+# Strategy charts stay side-by-side on page 1, so each takes about half the
+# A4-landscape printable width. The seasonal chart is alone on page 2, so it
+# uses the full width.
+PRINT_STRATEGY_CHART_WIDTH = 440
+PRINT_WIDE_CHART_WIDTH = 950
+PRINT_CHART_HEIGHT = 300
 
 if not print_mode:
     render_logo()
@@ -913,7 +936,8 @@ if not print_mode:
 
 # SHORT-TERM VS LONG-TERM STRATEGY
 with st.container(
-    border=True
+    border=True,
+    key="print_strategy"
 ):
 
     st.markdown(
@@ -1024,7 +1048,7 @@ with st.container(
                 .encode(
                     x=alt.X(
                         "AREA_LABEL:N",
-                        title="",
+                        title="Neighbourhood",
                         axis=alt.Axis(
                             labelAngle=-25,
                             labelColor="#000000",
@@ -1038,7 +1062,7 @@ with st.container(
 
                     y=alt.Y(
                         "ANNUAL_INCOME:Q",
-                        title="",
+                        title="Annual Income (£)",
                         axis=alt.Axis(
                             format=",.0f",
                             labelExpr="'£' + format(datum.value, ',.0f')",
@@ -1076,14 +1100,19 @@ with st.container(
                     ]
                 )
                 .properties(
-                    height=350,
+                    height=PRINT_CHART_HEIGHT if print_mode else 350,
                     background="#FFFFFF"
                 )
             )
 
+            if print_mode:
+                revenue_chart = revenue_chart.properties(
+                    width=PRINT_STRATEGY_CHART_WIDTH
+                )
+
             st.altair_chart(
                 revenue_chart,
-                use_container_width=True
+                use_container_width=not print_mode
             )
 
 
@@ -1111,7 +1140,7 @@ with yield_col:
                 x=alt.X(
                     "AREA_LABEL:N",
                     axis=alt.Axis(
-                        title="",
+                        title="Neighbourhood",
                         labelAngle=-25,
                         labelColor="#000000",
                         titleColor="#000000"
@@ -1128,7 +1157,7 @@ with yield_col:
                         zero=True
                     ),
                     axis=alt.Axis(
-                        title="",
+                        title="Gross Yield (%)",
                         format=".1f",
                         labelExpr="datum.label + '%'",
                         labelColor="#000000",
@@ -1165,22 +1194,34 @@ with yield_col:
                 ]
             )
             .properties(
-                height=350,
+                height=PRINT_CHART_HEIGHT if print_mode else 350,
                 background="#FFFFFF"
             )
         )
 
+        if print_mode:
+            yield_chart = yield_chart.properties(
+                width=PRINT_STRATEGY_CHART_WIDTH
+            )
+
         st.altair_chart(
             yield_chart,
-            use_container_width=True
+            use_container_width=not print_mode
         )
 
-# SEASONAL OCCUPANCY PATTERN
-occupancy_col, ai_col =st.columns([1,1])
+# SEASONAL OCCUPANCY PATTERN + AI SUMMARY
+# In print mode, render these as full-width sections (each forced onto its own
+# page); on screen keep them side-by-side.
+if print_mode:
+    st.markdown("<div class='pagebreak'></div>", unsafe_allow_html=True)
+    occupancy_col = st.container()
+else:
+    occupancy_col, ai_col = st.columns([1, 1])
 
 with occupancy_col:
     with st.container(
-        border=True
+        border=True,
+        key="print_seasonal" if print_mode else None
     ):
     
         st.markdown(
@@ -1288,19 +1329,27 @@ with occupancy_col:
                     ]
                 )
                 .properties(
-                    height=350,
+                    height=PRINT_CHART_HEIGHT if print_mode else 350,
                     background="#FFFFFF"
                 )
             )
     
+            if print_mode:
+                occupancy_chart = occupancy_chart.properties(
+                    width=PRINT_WIDE_CHART_WIDTH
+                )
+
             st.altair_chart(
                 occupancy_chart,
-                use_container_width=True
+                use_container_width=not print_mode
             )
 
 #AI SUMMARY
+if print_mode:
+    st.markdown("<div class='pagebreak'></div>", unsafe_allow_html=True)
+    ai_col = st.container()
 with ai_col:
-    with st.container(border=True):
+    with st.container(border=True, key="print_ai" if print_mode else None):
 
         st.markdown("### AI Comparison: ST vs LT")
 
@@ -1318,11 +1367,15 @@ with ai_col:
         ]
 
         if persona is None:
-            st.info("Select a persona on the landing page to enable the AI summary.")
+            if not print_mode:
+                st.info("Select a persona on the landing page to enable the AI summary.")
         elif not api_key:
-            st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
+            if not print_mode:
+                st.info("Add a [gemini] api_key to secrets to enable the AI summary.")
         else:
-            if st.button("Generate AI summary", use_container_width=True):
+            # Auto-generate in print mode so the AI summary lands in the PDF
+            # without a manual click (buttons are hidden when printing).
+            if print_mode or st.button("Generate AI summary", use_container_width=True):
 
                 try:
                     with st.spinner("Generating AI comparison..."):
@@ -1372,11 +1425,12 @@ with ai_col:
 
 st.divider()
 
-# In print mode, only the charts above are shown: auto-open the browser
-# print dialog once they have rendered, then stop before the POI section.
+# In print mode only the labeled charts and the AI summary are shown: open the
+# browser print dialog once they have fully rendered (the AI text is generated
+# synchronously above, so it is already in the DOM), then stop.
 if print_mode:
     html(
-        "<script>setTimeout(function(){ window.parent.print(); }, 1200);</script>",
+        "<script>setTimeout(function(){ window.parent.print(); }, 1800);</script>",
         height=0
     )
     st.stop()
