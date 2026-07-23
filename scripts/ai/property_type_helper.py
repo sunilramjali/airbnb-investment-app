@@ -1,3 +1,5 @@
+# Shared helper that returns a cached-or-generated property-type recommendation for the Streamlit app.
+# Co-authored with CoCo
 """
 property_type_helper.py
 -----------------------
@@ -12,7 +14,6 @@ Does NOT use snowflake.connector, streamlit, or a main block.
 import json
 import time
 import pandas as pd
-from google import genai
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -339,25 +340,14 @@ Avg sentiment score: {round(float(borough_row['avg_sentiment_score']), 4) if pd.
 # ---------------------------------------------------------------------------
 
 def call_gemini(api_key, system_prompt, user_prompt):
-    client      = genai.Client(api_key=api_key)
-    combined    = system_prompt + '\n\n' + user_prompt
-    max_retries = 3
+    # Delegate to the app's single Gemini gateway (owns SDK, model, retries).
+    from gemini import generate as gemini_generate
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=combined
-            )
-            return response.text
-        except Exception as e:
-            if '429' in str(e) and attempt < max_retries - 1:
-                time.sleep(15 * (attempt + 1))
-            elif attempt < max_retries - 1:
-                time.sleep(5)
-            else:
-                return None
-    return None
+    combined = system_prompt + '\n\n' + user_prompt
+    try:
+        return gemini_generate(combined, api_key=api_key)
+    except Exception:
+        return None
 
 
 def parse_response(ai_response):

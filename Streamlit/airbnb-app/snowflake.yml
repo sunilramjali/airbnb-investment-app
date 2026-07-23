@@ -17,6 +17,5 @@ entities:
       - landing.py
       - db.py
       - gemini.py
-      - property_type_helper.py
       - .streamlit/config.toml
       - pages/

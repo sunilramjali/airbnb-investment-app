@@ -1,12 +1,22 @@
 # Property Types page: ranks property/bedroom combos and shows a cached-or-generated AI recommendation.
 # Co-authored with CoCo
+import os
+import sys
+
 import streamlit as st
 import pandas as pd
 import json
 import time
 import altair as alt
 from db import get_session
-from property_type_helper import get_or_generate_recommendation
+
+# Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
+_SCRIPTS_AI = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "ai")
+)
+if _SCRIPTS_AI not in sys.path:
+    sys.path.insert(0, _SCRIPTS_AI)
+import property_type_helper as pth
 st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -786,12 +796,11 @@ with st.bottom:
         narrative_json = matches.iloc[0] if not matches.empty else None
         if narrative_json is None:
             # Cache miss in the preloaded AI_OUTPUTS snapshot — generate on demand.
-            # api_key=None lets gemini.py resolve it from the app's Snowflake
-            # secret (or local secrets.toml).
+            api_key = st.secrets.get("gemini", {}).get("api_key")
             with st.spinner("Generating AI recommendation..."):
-                narrative_json = get_or_generate_recommendation(
+                narrative_json = pth.get_or_generate_recommendation(
                     session,
-                    None,
+                    api_key,
                     selected_city,
                     selected_neighbourhood,
                     str(persona).upper(),
