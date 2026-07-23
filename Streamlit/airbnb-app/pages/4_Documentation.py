@@ -637,6 +637,30 @@ with st.expander('✨  How are AI summaries used?', expanded=True):
 
 with st.expander('⚖  Transparency, assumptions & limitations', expanded=True):
 
+    st.markdown('#### Investment universe used in the app')
+
+    st.markdown(
+        """
+        The figures shown are based on a like-for-like investment universe rather than
+        every listing in the raw data.
+
+        - **Active listings only.** A listing is counted as active when it has an
+          estimated 30 or more booked nights over the trailing 12 months. Listings
+          below this threshold are treated as dormant and excluded, so the figures
+          reflect properties that are genuinely being let rather than inactive or
+          rarely-booked listings.
+
+        - **Flats and houses only.** Only entire-home flats and houses are included.
+          Other structure types — such as hotels, B&Bs, boats and non-dwelling
+          listings — are excluded because flats and houses are the property types a
+          buy-to-let investor can realistically purchase and operate.
+
+        Together, these filters keep the comparison focused on active, purchasable
+        residential properties, giving a more realistic picture of achievable
+        performance.
+        """
+    )
+    
     st.markdown('#### What the figures represent')
 
     st.markdown(
