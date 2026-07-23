@@ -1,10 +1,12 @@
+# Property Types page: ranks property/bedroom combos and shows a cached-or-generated AI recommendation.
+# Co-authored with CoCo
 import streamlit as st
 import pandas as pd
 import json
 import time
 import altair as alt
 from db import get_session
-from nav import render_breadcrumb
+from property_type_helper import get_or_generate_recommendation
 st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -260,7 +262,6 @@ st.markdown(
 )
 
 render_breadcrumb("property_types")
-
 def format_money(value):
     if pd.isna(value):
         return "N/A"
@@ -782,8 +783,22 @@ with st.bottom:
 
         matches = ai_summary.loc[mask, "ai_narrative"]
 
-        if not matches.empty:
-            narrative_dict = json.loads(matches.iloc[0])
+        narrative_json = matches.iloc[0] if not matches.empty else None
+        if narrative_json is None:
+            # Cache miss in the preloaded AI_OUTPUTS snapshot — generate on demand.
+            # api_key=None lets gemini.py resolve it from the app's Snowflake
+            # secret (or local secrets.toml).
+            with st.spinner("Generating AI recommendation..."):
+                narrative_json = get_or_generate_recommendation(
+                    session,
+                    None,
+                    selected_city,
+                    selected_neighbourhood,
+                    str(persona).upper(),
+                )
+
+        if narrative_json is not None:
+            narrative_dict = json.loads(narrative_json)
 
             recommendation_summary = narrative_dict.get(
                 "recommendation_summary",
