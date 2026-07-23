@@ -1,4 +1,5 @@
 # Helper for the Property Types Comparison page: caches and generates
+# Co-authored with CoCo
 # persona-based ST-vs-LT + seasonality comparisons across 3 starred
 # (neighbourhood, structure_class, bedroom_bucket) picks.
 """
@@ -28,7 +29,7 @@ from gemini import generate as _gemini_generate, DEFAULT_MODEL
 
 DATABASE       = 'AIRBNB_INVESTMENT_DB'
 GOLD_SCHEMA    = 'GOLD'
-CACHE_TABLE    = 'PROPERTY_TYPE_COMPARISON_CACHE'
+CACHE_TABLE    = 'PROPERTY_COMPARISON_CACHE'
 PROMPT_VERSION = 'v1'
 
 MONTH_TO_SEASON = {
@@ -69,10 +70,11 @@ PERSONAS = {
 # ---------------------------------------------------------------------------
 
 def ensure_cache_table(session):
-    """Creates PROPERTY_TYPE_COMPARISON_CACHE if it doesn't already
-    exist. Safe to call on every request — CREATE TABLE IF NOT EXISTS
-    is a no-op once the table is there. Cheap enough not to bother
-    caching this check across calls."""
+    """Best-effort CREATE TABLE IF NOT EXISTS for the cache. The table is
+    normally pre-created and granted via setup/property_comparison_cache.sql,
+    and the app role lacks CREATE TABLE — so a permission error here is
+    expected and must NOT block generation. Swallow it and carry on; a
+    genuinely missing table surfaces later at check/write time."""
     try:
         session.sql(f"""
             CREATE TABLE IF NOT EXISTS {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE} (
@@ -87,9 +89,11 @@ def ensure_cache_table(session):
             )
         """).collect()
     except Exception as e:
-        # Don't block the page over a table-creation race/permissions
-        # issue — surface it, but let the caller decide what to do.
-        raise RuntimeError(f'Could not ensure cache table exists: {e}') from e
+        import logging
+        logging.getLogger(__name__).debug(
+            'ensure_cache_table skipped (%s expected to be pre-created): %s',
+            CACHE_TABLE, e,
+        )
 
 
 def make_cache_key(selections):

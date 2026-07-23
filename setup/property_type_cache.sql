@@ -17,3 +17,8 @@ CREATE OR REPLACE TABLE AIRBNB_INVESTMENT_DB.GOLD.PROPERTY_TYPE_CACHE (
     MODEL_USED             VARCHAR,
     COMPUTED_AT            TIMESTAMP_NTZ
 );
+
+-- CREATE OR REPLACE resets grants, so re-grant the app role each time.
+-- The helper needs SELECT (cache lookup) and INSERT (persist generations).
+GRANT SELECT, INSERT ON TABLE AIRBNB_INVESTMENT_DB.GOLD.PROPERTY_TYPE_CACHE
+    TO ROLE AIRBNB_APP_PUBLIC_ROLE;
