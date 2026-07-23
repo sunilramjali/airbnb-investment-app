@@ -44,9 +44,35 @@ to silver; final app-ready data goes to gold. The app reads from **gold only**.
 
 | Layer | Snowflake schema | Holds | Example tables |
 |-------|------------------|-------|----------------|
-| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO` |
-| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `REVIEWS_CLEANED` |
-| Gold | `GOLD` | Final app-ready outputs | `APP_READY_DATASET`, `INVESTMENT_SCORES`, `AREA_SUMMARY` |
+| Bronze | `BRONZE` | Raw / lightly standardised | `RAW_LISTINGS`, `RAW_REVIEWS`, `RAW_CALENDAR`, `RAW_NEIGHBOURHOODS_GEO`, `RAW_PRICE_PAID`, `RAW_OVERTURE_POI`, `RAW_CODE_POINT` |
+| Silver | `SILVER` | Cleaned & validated | `LISTINGS_CLEANED`, `CALENDAR_CLEANED`, `REVIEWS_CLEANED`, `NEIGHBOURHOODS_CLEANED`, `NEIGHBOURHOODS_GEO_CLEANED`, `PRICE_PAID_CLEANED`, `POI_CLEANED`, `CODE_POINT_CLEANED`, `PROPERTY_GROUP_MAP` |
+| Gold | `GOLD` | Star (dims + facts) + app-ready marts | `DIM_LISTING`, `DIM_HOST`, `DIM_NEIGHBOURHOOD`, `DIM_PROPERTY_GROUP`, `DIM_POI`, `DIM_DATE`, `FCT_LISTING_SNAPSHOT`, `FCT_CALENDAR_DAILY`, `FCT_LISTING_POI`, `MART_LISTING_CANDIDATES`, `MART_AREA_OVERVIEW`, `MART_PROPERTY_GROUP`, `MART_AREA_POI` |
+
+---
+
+## Why this design
+
+The pipeline combines four well-known patterns, each chosen for a specific reason:
+
+- **Medallion architecture** (Bronze → Silver → Gold). Data flows one direction and each
+  layer has one job, so failures and fixes stay localised — you can rebuild Gold without
+  re-ingesting, or fix a cleaning bug without touching raw data.
+- **Kimball dimensional modelling** (the `DIM_*` / `FCT_*` star). Conformed dimensions are
+  reused across many facts (one `DIM_LISTING` serves the snapshot, POI, and calendar
+  facts), which is query-efficient and analyst-friendly.
+- **Denormalised data marts / serving layer** (the `MART_*` tables). The joins and
+  aggregates are computed *once* at refresh time and stored in the shape each app screen
+  needs, so the app does trivial single-table `SELECT`s — low, predictable latency and no
+  duplicated metric logic. (This mirrors the **CQRS** idea: separate the write/transform
+  model from the read model.)
+- **Incremental dynamic tables with `DOWNSTREAM` chaining**. You declare *what* each table
+  is and a freshness target; Snowflake decides *how* and *when* to refresh. The marts carry
+  the explicit lag anchor and upstream layers refresh only as needed — no hand-written
+  orchestration, no redundant full rebuilds.
+
+In short: a **medallion pipeline with a Kimball star at the core and a denormalised,
+materialised serving layer on top**, refreshed incrementally — a single source of truth for
+every metric, with all the expensive work pushed to refresh time so reads stay cheap.
 
 ---
 
@@ -66,14 +92,27 @@ airbnb-investment-app/
 │   ├── 00_setup_api_integration.sql
 │   └── 01_setup_database_and_warehouse.sql
 │
-├── etl/                 # the pipeline, by layer (Bronze EXISTS)
-│   ├── 01_bronze_ddl.sql      # file formats + stage (run once)
-│   ├── 02_bronze_load.py         # generic loader, driven by the manifest
-│   ├── silver/ (later)        # cleaning / typing
-│   └── gold/   (later)        # features / scoring
+├── etl/                 # the pipeline, by layer (Bronze + Silver + Gold EXIST)
+│   ├── ingestion_layer/
+│   │   ├── 01_bronze_ddl.sql           # Airbnb file formats + S3 integration + stage (run once)
+│   │   ├── 02_bronze_load.py           # generic Airbnb loader, driven by the manifest
+│   │   ├── 03_land_registry_ddl.sql    # Land Registry headerless format + stage (run once)
+│   │   ├── 04_land_registry_load.sql   # Land Registry table + COPY + audit (run each load)
+│   │   ├── 05_overture_poi_load.sql    # Overture Places POIs (Marketplace share; scoped to boroughs)
+│   │   └── 06_code_point_load.sql      # OS Code-Point Open postcodes (Marketplace share; full GB copy)
+│   ├── cleaning_layer/                 # Silver transforms, driven by cleaning_layer.py
+│   │   ├── 01_silver_ddl.sql           # SILVER schema + CLEAN_AUDIT
+│   │   ├── 02..07_silver_*.sql         # listings, calendar, reviews, neighbourhoods(+geo), price_paid
+│   │   ├── 08_silver_poi.sql           # Overture POIs -> investment-relevant amenities
+│   │   ├── 09_silver_code_point.sql    # postcodes -> normalized POSTCODE_KEY reference
+│   │   └── 10_silver_property_group_map.sql  # property_type -> property_group lookup
+│   └── aggregation_layer/              # Gold star + app marts, driven by aggregation_layer.py
+│       ├── 01_dimensions.sql           # DIM_* conformed dimensions + generated DIM_DATE
+│       ├── 02_facts.sql                # FCT_* at listing / listing x date grain
+│       └── 03_app_marts.sql            # MART_* denormalised consumer layer (app reads these)
 │
-├── notebooks/           # exploration + running the pipeline
-│   └── preprocessing_layer.ipynb
+├── notebooks/ (later)  # exploration + running the pipeline
+│   └── preprocessing_layer.ipynb  (planned)
 │
 ├── app/  (later)        # Streamlit app (reads GOLD schema only)
 ├── tests/ (later)       # validation of data & loader behaviour
@@ -96,7 +135,7 @@ airbnb-investment-app/
   folder. See `data_sources.md` for where the raw files came from.
 - **`config/`** — shared helpers (session, SQL runner, ingestion manifest) every layer imports.
 - **`setup/`** — one-time database, warehouse, and integration setup.
-- **`etl/`** — the pipeline itself, by layer (Bronze loader today; Silver/Gold later).
+- **`etl/`** — the pipeline itself, by layer (Bronze loader + Silver cleaning + Gold aggregation today).
 - **`notebooks/`** — where we *explore* data and *run* the pipeline. One notebook = one focused job.
 - **`src/`** *(aspirational)* — the reusable-logic pattern; today that role is filled by
   `config/` + `etl/`. Full explanation in [what_is_src.md](what_is_src.md).
@@ -129,20 +168,4 @@ This keeps two people from editing the same file at once, which reduces merge co
 2. **The app reads the GOLD schema only** — never Bronze or Silver.
 3. **Logic lives in shared modules (`config/` + `etl/`), not copy-pasted across notebooks** (see [what_is_src.md](what_is_src.md)).
 4. **No hardcoded connection details** — use `config/snowflake_context.py`.
-5. **One notebook / one script = one focused job**, with a number prefix so order is clear.
-6. **Never commit** `data/`, `.venv/`, `.env`, secrets, or `.ipynb_checkpoints/`.
-7. **No direct pushes to `main`** — branch + Pull Request (see [branching_strategy.md](branching_strategy.md)).
-
----
-
-## How a change flows through the project (example)
-
-> Goal: add an "investment score" column the app can show.
-
-1. **Silver** — a shared cleaning transform produces clean listings in the SILVER schema.
-2. **Gold** — a shared scoring transform computes the score and writes
-   `GOLD.INVESTMENT_SCORES`.
-3. **Test** — a QA check confirms the score is between 0 and 100.
-4. **App** — `app/main.py` reads `GOLD.INVESTMENT_SCORES` and displays it.
-
-The same scoring logic powers the GOLD table, the test, and the app — so they can never disagree.
+5. **One notebook / one script = one focused job**, 

@@ -1,3 +1,5 @@
+# Helper for the Listing Candidates page: caches and generates persona-based top-vs-bottom listing comparisons via the live Gemini API.
+# Co-authored with CoCo
 """
 listing_comparison_helper.py
 ----------------------------
@@ -10,9 +12,6 @@ Does NOT use snowflake.connector, streamlit, or a main block.
 """
 
 import json
-import time
-import pandas as pd
-from google import genai
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -90,30 +89,28 @@ def check_cache(session, city, neighbourhood, persona, property_group):
 
 def write_to_cache(session, city, neighbourhood, persona, property_group,
                    narrative, top_listing_name, listing_count):
-    df = pd.DataFrame([{
-        'city':                   city,
-        'neighbourhood_cleansed': neighbourhood,
-        'persona':                persona,
-        'property_group':         property_group,
-        'top_listing_name':       top_listing_name,
-        'listing_count':          listing_count,
-        'ai_narrative':           narrative,
-        'model_used':             MODEL,
-        'prompt_version':         PROMPT_VERSION,
-        'computed_at':            pd.Timestamp.now(),
-    }])
+    # Parameterized INSERT (bind variables) — needs only INSERT privilege on the
+    # pre-created table, avoiding the CREATE TABLE / temp-stage rights that
+    # write_pandas requires. Binds also make the JSON narrative injection-safe.
+    insert_sql = f"""
+        INSERT INTO {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE}
+            (CITY, NEIGHBOURHOOD_CLEANSED, PERSONA, PROPERTY_GROUP,
+             TOP_LISTING_NAME, LISTING_COUNT, AI_NARRATIVE,
+             MODEL_USED, PROMPT_VERSION, COMPUTED_AT)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
+    """
+    params = [
+        city, neighbourhood, persona, property_group,
+        top_listing_name, int(listing_count), narrative,
+        MODEL, PROMPT_VERSION,
+    ]
 
     try:
-        session.write_pandas(
-            df,
-            CACHE_TABLE,
-            database=DATABASE,
-            schema=GOLD_SCHEMA,
-            overwrite=False,
-            auto_create_table=True
-        )
+        session.sql(insert_sql, params=params).collect()
     except Exception as e:
-        print(f'Cache write failed: {e}')
+        # Surface, don't swallow: a silent failure here is why the cache
+        # never populated. Caller can log/handle it.
+        raise RuntimeError(f'Cache write failed: {e}') from e
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +118,8 @@ def write_to_cache(session, city, neighbourhood, persona, property_group,
 # ---------------------------------------------------------------------------
 
 def load_top_listings(session, city, neighbourhood, persona, property_group):
-    score_col = PERSONAS[persona]['score_col']
-    # score columns in INVESTMENT_SCORES are lowercase due to write_pandas
+    score_col = PERSONAS[persona]['score_col'].upper()
+    # INVESTMENT_SCORES columns are standard uppercase identifiers.
 
     df = session.sql(f"""
         SELECT
@@ -143,16 +140,16 @@ def load_top_listings(session, city, neighbourhood, persona, property_group):
             lc.DINING_COUNT_500M,
             lc.HOST_IS_SUPERHOST,
             lc.LISTING_URL,
-            i."{score_col}"     AS persona_score
+            i.{score_col}       AS persona_score
         FROM {DATABASE}.{GOLD_SCHEMA}.INVESTMENT_SCORES i
         JOIN {DATABASE}.{GOLD_SCHEMA}.MART_LISTING_CANDIDATES lc
-            ON i."listing_id" = lc.LISTING_ID
-        WHERE i."city" = '{city}'
-        AND i."neighbourhood_cleansed" = '{neighbourhood}'
+            ON i.LISTING_ID = lc.LISTING_ID
+        WHERE i.CITY = '{city}'
+        AND i.NEIGHBOURHOOD_CLEANSED = '{neighbourhood}'
         AND lc.PROPERTY_GROUP = '{property_group}'
         AND lc.ANNUAL_REVENUE > 0
         AND lc.OCCUPANCY_RATE > 0
-        ORDER BY i."{score_col}" DESC
+        ORDER BY i.{score_col} DESC
         LIMIT 10
     """).to_pandas()
 
@@ -308,25 +305,14 @@ BOTTOM 3 LISTINGS (positions 8-10 of top 10 by investment score):
 # ---------------------------------------------------------------------------
 
 def call_gemini(api_key, system_prompt, user_prompt):
-    client      = genai.Client(api_key=api_key)
-    combined    = system_prompt + '\n\n' + user_prompt
-    max_retries = 3
+    # Delegate to the app's single Gemini gateway (owns SDK, model, retries).
+    from gemini import generate as gemini_generate
 
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=combined
-            )
-            return response.text
-        except Exception as e:
-            if '429' in str(e) and attempt < max_retries - 1:
-                time.sleep(15 * (attempt + 1))
-            elif attempt < max_retries - 1:
-                time.sleep(5)
-            else:
-                return None
-    return None
+    combined = system_prompt + '\n\n' + user_prompt
+    try:
+        return gemini_generate(combined, api_key=api_key)
+    except Exception:
+        return None
 
 
 def parse_response(ai_response):
@@ -393,13 +379,18 @@ def get_or_generate_comparison(session, api_key, city, neighbourhood,
 
     narrative = parse_response(ai_response)
 
-    # Step 4: Store in cache
+    # Step 4: Store in cache. A cache-write failure must not break the page —
+    # the narrative is already generated — so log and continue.
     top_listing_name = top_3.iloc[0]['name'] if len(top_3) > 0 else 'Unknown'
 
-    write_to_cache(
-        session, city, neighbourhood, persona, property_group,
-        narrative, top_listing_name, len(df_listings)
-    )
+    try:
+        write_to_cache(
+            session, city, neighbourhood, persona, property_group,
+            narrative, top_listing_name, len(df_listings)
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(str(e))
 
     # Step 5: Return narrative
     return narrative
