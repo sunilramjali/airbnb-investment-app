@@ -66,15 +66,17 @@ PERSONAS = {
 # Cache
 # ---------------------------------------------------------------------------
 
-def check_cache(session, city, neighbourhood, persona, property_group):
+def check_cache(session, city, neighbourhood, persona, structure_class,
+                bedroom_group):
     try:
         result = session.sql(f"""
             SELECT AI_NARRATIVE
             FROM {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE}
-            WHERE CITY = '{city}'
-            AND NEIGHBOURHOOD_CLEANSED = '{neighbourhood}'
+            WHERE LOWER(TRIM(CITY)) = LOWER(TRIM('{city}'))
+            AND LOWER(TRIM(NEIGHBOURHOOD)) = LOWER(TRIM('{neighbourhood}'))
             AND PERSONA = '{persona}'
-            AND PROPERTY_GROUP = '{property_group}'
+            AND LOWER(TRIM(STRUCTURE_CLASS)) = LOWER(TRIM('{structure_class}'))
+            AND LOWER(TRIM(BEDROOM_GROUP)) = LOWER(TRIM('{bedroom_group}'))
             LIMIT 1
         """).to_pandas()
 
@@ -87,20 +89,20 @@ def check_cache(session, city, neighbourhood, persona, property_group):
         return None
 
 
-def write_to_cache(session, city, neighbourhood, persona, property_group,
-                   narrative, top_listing_name, listing_count):
+def write_to_cache(session, city, neighbourhood, persona, structure_class,
+                   bedroom_group, narrative, top_listing_name, listing_count):
     # Parameterized INSERT (bind variables) — needs only INSERT privilege on the
     # pre-created table, avoiding the CREATE TABLE / temp-stage rights that
     # write_pandas requires. Binds also make the JSON narrative injection-safe.
     insert_sql = f"""
         INSERT INTO {DATABASE}.{GOLD_SCHEMA}.{CACHE_TABLE}
-            (CITY, NEIGHBOURHOOD_CLEANSED, PERSONA, PROPERTY_GROUP,
+            (CITY, NEIGHBOURHOOD, PERSONA, STRUCTURE_CLASS, BEDROOM_GROUP,
              TOP_LISTING_NAME, LISTING_COUNT, AI_NARRATIVE,
              MODEL_USED, PROMPT_VERSION, COMPUTED_AT)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP()::TIMESTAMP_NTZ
     """
     params = [
-        city, neighbourhood, persona, property_group,
+        city, neighbourhood, persona, structure_class, bedroom_group,
         top_listing_name, int(listing_count), narrative,
         MODEL, PROMPT_VERSION,
     ]
@@ -117,15 +119,22 @@ def write_to_cache(session, city, neighbourhood, persona, property_group,
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_top_listings(session, city, neighbourhood, persona, property_group):
+def load_top_listings(session, city, neighbourhood, persona, structure_class,
+                      bedroom_group):
     score_col = PERSONAS[persona]['score_col'].upper()
     # INVESTMENT_SCORES columns are standard uppercase identifiers.
+    #
+    # Filters mirror the page's displayed candidates exactly: CITY (from
+    # INVESTMENT_SCORES) + NEIGHBOURHOOD + STRUCTURE_CLASS + BEDROOM_GROUP
+    # (the page derives BEDROOM_GROUP from BEDROOMS via the same CASE). No
+    # revenue/occupancy filter, so the top-10 membership matches the page.
 
     df = session.sql(f"""
         SELECT
             lc.LISTING_ID,
             lc.NAME,
             lc.PROPERTY_GROUP,
+            lc.STRUCTURE_CLASS,
             lc.ROOM_TYPE,
             lc.BEDROOMS,
             lc.BATHROOMS,
@@ -144,11 +153,14 @@ def load_top_listings(session, city, neighbourhood, persona, property_group):
         FROM {DATABASE}.{GOLD_SCHEMA}.INVESTMENT_SCORES i
         JOIN {DATABASE}.{GOLD_SCHEMA}.MART_LISTING_CANDIDATES lc
             ON i.LISTING_ID = lc.LISTING_ID
-        WHERE i.CITY = '{city}'
-        AND i.NEIGHBOURHOOD_CLEANSED = '{neighbourhood}'
-        AND lc.PROPERTY_GROUP = '{property_group}'
-        AND lc.ANNUAL_REVENUE > 0
-        AND lc.OCCUPANCY_RATE > 0
+        WHERE LOWER(TRIM(i.CITY)) = LOWER(TRIM('{city}'))
+        AND LOWER(TRIM(lc.NEIGHBOURHOOD)) = LOWER(TRIM('{neighbourhood}'))
+        AND LOWER(TRIM(lc.STRUCTURE_CLASS)) = LOWER(TRIM('{structure_class}'))
+        AND (CASE
+                WHEN lc.BEDROOMS >= 4 THEN '4+'
+                WHEN lc.BEDROOMS IN (1, 2, 3) THEN CAST(lc.BEDROOMS AS VARCHAR)
+             END) = '{bedroom_group}'
+        AND i.{score_col} IS NOT NULL
         ORDER BY i.{score_col} DESC
         LIMIT 10
     """).to_pandas()
@@ -161,61 +173,78 @@ def load_top_listings(session, city, neighbourhood, persona, property_group):
 # Prompt building
 # ---------------------------------------------------------------------------
 
+def _f(value, default=0.0):
+    # NaN/None-safe float. The revenue/occupancy filter was removed for exact
+    # parity with the page, so some rows may have NULL metrics.
+    try:
+        v = float(value)
+        return default if v != v else v  # v != v is True only for NaN
+    except (TypeError, ValueError):
+        return default
+
+
+def _i(value, default=0):
+    return int(_f(value, default))
+
+
 def format_listing(row, rank, persona):
     superhost = 'Yes' if row.get('host_is_superhost') else 'No'
+    rating = _f(row.get('review_scores_rating'), None)
+    rating_txt = f"{rating:.2f}" if rating is not None else 'N/A'
 
     if persona == 'YIELD_MAXIMISER':
         key_stats = (
             f"  Annual revenue: "
-            f"£{float(row['annual_revenue']):,.0f}\n"
+            f"£{_f(row.get('annual_revenue')):,.0f}\n"
             f"  Nightly price (ADR): "
-            f"£{float(row['price_per_night']):.0f}\n"
-            f"  RevPAR: £{float(row['revpar']):.0f}\n"
+            f"£{_f(row.get('price_per_night')):.0f}\n"
+            f"  RevPAR: £{_f(row.get('revpar')):.0f}\n"
             f"  Occupancy: "
-            f"{float(row['occupancy_rate'])*100:.1f}%"
+            f"{_f(row.get('occupancy_rate'))*100:.1f}%"
         )
     elif persona == 'OCCUPANCY_OPTIMISER':
         key_stats = (
             f"  Occupancy rate: "
-            f"{float(row['occupancy_rate'])*100:.1f}%\n"
+            f"{_f(row.get('occupancy_rate'))*100:.1f}%\n"
             f"  Review count: "
-            f"{int(row.get('number_of_reviews', 0))} reviews\n"
+            f"{_i(row.get('number_of_reviews'))} reviews\n"
             f"  Annual revenue: "
-            f"£{float(row['annual_revenue']):,.0f}\n"
+            f"£{_f(row.get('annual_revenue')):,.0f}\n"
             f"  Nightly price: "
-            f"£{float(row['price_per_night']):.0f}"
+            f"£{_f(row.get('price_per_night')):.0f}"
         )
     else:  # QUALITY_HOST
         key_stats = (
             f"  Guest rating: "
-            f"{row.get('review_scores_rating', 'N/A')}/5\n"
+            f"{rating_txt}/5\n"
             f"  Review count: "
-            f"{int(row.get('number_of_reviews', 0))} reviews\n"
+            f"{_i(row.get('number_of_reviews'))} reviews\n"
             f"  Superhost: {superhost}\n"
             f"  Occupancy: "
-            f"{float(row['occupancy_rate'])*100:.1f}%"
+            f"{_f(row.get('occupancy_rate'))*100:.1f}%"
         )
 
     return (
         f"Position {rank}: {row['name']}\n"
         f"  Investment score: "
-        f"{float(row['persona_score']):.1f}/100\n"
+        f"{_f(row.get('persona_score')):.1f}/100\n"
         f"{key_stats}\n"
         f"  Room type: {row['room_type']}, "
         f"Bedrooms: {row.get('bedrooms', 'N/A')}, "
         f"Bathrooms: {row.get('bathrooms', 'N/A')}\n"
         f"  Transport links 500m: "
-        f"{int(row.get('transport_count_500m', 0))}\n"
+        f"{_i(row.get('transport_count_500m'))}\n"
         f"  Dining options 500m: "
-        f"{int(row.get('dining_count_500m', 0))}\n"
+        f"{_i(row.get('dining_count_500m'))}\n"
         f"  Total POIs 500m: "
-        f"{int(row.get('poi_count_500m', 0))}"
+        f"{_i(row.get('poi_count_500m'))}"
     )
 
 
-def build_prompt(city, neighbourhood, persona, property_group,
+def build_prompt(city, neighbourhood, persona, structure_class, bedroom_group,
                  top_3, bottom_3):
     persona_info = PERSONAS[persona]
+    segment = f"{structure_class}, {bedroom_group}-bedroom"
 
     top_text = '\n\n'.join([
         format_listing(row, i + 1, persona)
@@ -236,7 +265,7 @@ analyst advising a {persona_info['label']} who prioritises \
 {persona_info['focus']}.
 
 You are comparing the top 3 vs bottom 3 listings from the \
-top 10 {property_group} properties in {neighbourhood}, {city},
+top 10 {segment} properties in {neighbourhood}, {city},
 ranked by investment score for a {persona_info['label']}.
 
 The average score gap between top and bottom is \
@@ -266,7 +295,7 @@ this listing ranks first — focus on the primary metric \
 for this persona with specific numbers",
   "key_differentiator": "the single most important factor \
 that separates top performers from bottom performers \
-in this neighbourhood x property group combination. \
+in this neighbourhood x property-type combination. \
 Must be specific to this persona's priorities.",
   "location_insight": "one sentence comparing the POI \
 context of top vs bottom listings — transport and \
@@ -275,7 +304,7 @@ better location access and why it matters for \
 this persona.",
   "what_to_look_for": [
     "first specific criterion to prioritise when \
-selecting a {property_group} here for this persona",
+selecting a {segment} property here for this persona",
     "second specific criterion with actual benchmark \
 numbers from the top 3 data"
   ],
@@ -287,7 +316,7 @@ should actively screen out when evaluating listings"
     user_prompt = f"""
 City: {city}
 Neighbourhood: {neighbourhood}
-Property group: {property_group}
+Property type: {segment}
 Persona: {persona_info['label']}
 Avg investment score gap (top vs bottom): {score_gap:.1f} points
 
@@ -335,29 +364,36 @@ def parse_response(ai_response):
 # ---------------------------------------------------------------------------
 
 def get_or_generate_comparison(session, api_key, city, neighbourhood,
-                                persona, property_group):
+                                persona, structure_class, bedroom_group):
     """
     Check cache for an existing comparison narrative; generate and cache
     one if absent. Returns a JSON string or None if data is insufficient.
 
+    The compared listings are the exact top 10 candidates shown on the page:
+    filtered by CITY + NEIGHBOURHOOD + STRUCTURE_CLASS + BEDROOM_GROUP and
+    ranked by the persona's investment score.
+
     Parameters
     ----------
-    session        : Snowpark session (already open)
-    api_key        : Google API key, e.g. from st.secrets
-    city           : e.g. 'London'
-    neighbourhood  : e.g. 'Westminster'
-    persona        : 'YIELD_MAXIMISER' | 'OCCUPANCY_OPTIMISER' |
-                     'QUALITY_HOST'
-    property_group : e.g. 'Apartment / Flat'
+    session         : Snowpark session (already open)
+    api_key         : Google API key, e.g. from st.secrets
+    city            : e.g. 'London'
+    neighbourhood   : e.g. 'Westminster'
+    persona         : 'YIELD_MAXIMISER' | 'OCCUPANCY_OPTIMISER' |
+                      'QUALITY_HOST'
+    structure_class : e.g. 'Entire home'
+    bedroom_group   : '1' | '2' | '3' | '4+'
     """
     # Step 1: Check cache
-    cached = check_cache(session, city, neighbourhood, persona, property_group)
+    cached = check_cache(
+        session, city, neighbourhood, persona, structure_class, bedroom_group
+    )
     if cached:
         return cached
 
     # Step 2: Load top 10 listings
     df_listings = load_top_listings(
-        session, city, neighbourhood, persona, property_group
+        session, city, neighbourhood, persona, structure_class, bedroom_group
     )
 
     # Need at least 6 listings for a meaningful top 3 vs bottom 3 comparison
@@ -369,7 +405,8 @@ def get_or_generate_comparison(session, api_key, city, neighbourhood,
 
     # Step 3: Build prompt and call Gemini
     system_prompt, user_prompt = build_prompt(
-        city, neighbourhood, persona, property_group, top_3, bottom_3
+        city, neighbourhood, persona, structure_class, bedroom_group,
+        top_3, bottom_3
     )
 
     ai_response = call_gemini(api_key, system_prompt, user_prompt)
@@ -385,8 +422,8 @@ def get_or_generate_comparison(session, api_key, city, neighbourhood,
 
     try:
         write_to_cache(
-            session, city, neighbourhood, persona, property_group,
-            narrative, top_listing_name, len(df_listings)
+            session, city, neighbourhood, persona, structure_class,
+            bedroom_group, narrative, top_listing_name, len(df_listings)
         )
     except Exception as e:
         import logging

@@ -372,7 +372,7 @@ FROM AIRBNB_INVESTMENT_DB.GOLD.AI_OUTPUTS
 # Streamlit's hasher; the rest are plain strings so they hash cleanly.
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_listing_comparison(
-    _session, _api_key, city, neighbourhood, persona, property_group
+    _session, _api_key, city, neighbourhood, persona, structure_class, bedroom_group
 ):
     return lch.get_or_generate_comparison(
         _session,
@@ -380,7 +380,8 @@ def get_cached_listing_comparison(
         city,
         neighbourhood,
         persona,
-        property_group,
+        structure_class,
+        bedroom_group,
     )
 
 listing_candidates = load_listings(session)
@@ -554,11 +555,10 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                 st.markdown("### AI Comparison: Top 3 vs Bottom 3")
 
                 st.caption(
-                    "Persona-based comparison of the top 3 vs bottom 3 listings "
-                    "among the top 10 in this property group, neighbourhood and city."
+                    "Persona-based comparison of the top 3 vs bottom 3 of the "
+                    "top 10 listings shown above for this property type, bedroom "
+                    "count, neighbourhood and city."
                 )
-
-                selected_property_group = top_10_listings.iloc[0]["PROPERTY_GROUP"]
 
                 api_key = st.secrets.get("gemini", {}).get("api_key")
                 if not api_key:
@@ -573,7 +573,8 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                     selected_city,
                                     selected_neighbourhood,
                                     persona_clean.upper(),
-                                    selected_property_group,
+                                    selected_structure_class,
+                                    selected_bedroom_group,
                                 )
                         except Exception as e:
                             narrative_json = None
