@@ -180,13 +180,12 @@ def load_property_type_data(conn, city):
             AND b.CITY = '{city}'
             GROUP BY a.NEIGHBOURHOOD, a.PROPERTY_GROUP
         ) j1
-        JOIN AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_GROUP p
+        JOIN AIRBNB_INVESTMENT_DB.GOLD.MART_PROPERTY_TYPE p
             ON p.NEIGHBOURHOOD = j1.NEIGHBOURHOOD
-            AND p.PROPERTY_GROUP = j1.PROPERTY_GROUP
+            AND p.STRUCTURE_CLASS = j1.PROPERTY_GROUP
         WHERE p.NEIGHBOURHOOD IS NOT NULL
-        AND p.PROPERTY_GROUP IS NOT NULL
-        AND p.PROPERTY_GROUP != 'Other / Unknown'
-        AND p.PROPERTY_GROUP != ''
+        AND p.STRUCTURE_CLASS IS NOT NULL
+        AND p.STRUCTURE_CLASS != 'Other'
         ORDER BY j1.NEIGHBOURHOOD,
                  INVESTMENT_SCORE_YIELD DESC
     """, conn)
