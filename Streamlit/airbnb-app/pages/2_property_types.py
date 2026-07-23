@@ -4,6 +4,7 @@ import json
 import time
 import altair as alt
 from db import get_session
+from nav import render_breadcrumb
 st.set_page_config(page_title="Property Types", layout="wide")
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
@@ -252,23 +253,13 @@ st.markdown(
         background-color: #f8d9d3 !important;
         color: #000000 !important;
     }
+
     </style>
     """,
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, empty_col, page_col3 = st.columns([1,1,5,1])
-with page_col1:
-    if st.button('Landing', use_container_width = True):
-        st.switch_page('landing.py')
-
-with page_col2:
-    if st.button('Area Overview', use_container_width = True):
-        st.switch_page('pages/1_area_overview.py')
-        
-with page_col3:
-    if st.button('Documentaion', use_container_width = True):
-        st.switch_page('pages/4_Documentation.py')
+render_breadcrumb("property_types")
 
 def format_money(value):
     if pd.isna(value):

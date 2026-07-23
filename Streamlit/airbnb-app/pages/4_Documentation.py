@@ -1,6 +1,7 @@
 import streamlit as st
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
+from nav import render_nav_links
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -211,22 +212,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-page_col1, page_col2, page_col3, page_col4, empty_col= st.columns([1,1,1,1,4])
-with page_col1:
-    if st.button('Landing', use_container_width = True):
-        st.switch_page('landing.py')
-
-with page_col2:
-    if st.button('Area Overview', use_container_width = True):
-        st.switch_page('pages/1_area_overview.py')
-
-with page_col3:
-    if st.button('Property Types', use_container_width = True):
-        st.switch_page('pages/2_property_types.py')
-
-with page_col4:
-    if st.button('Listing Candidates', use_container_width = True):
-        st.switch_page('pages/3_listing_candidates')
+render_nav_links()
 
 st.set_page_config(layout='wide')
 

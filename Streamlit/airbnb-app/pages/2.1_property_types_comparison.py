@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+from streamlit.components.v1 import html
 from db import get_session
+from nav import render_logo
 
 #CUSTOM CSS SCRIPT FOR PAGE LOOK
 st.markdown(
@@ -207,15 +209,163 @@ st.markdown(
         background-color: #f8d9d3 !important;
         color: #000000 !important;
     }
+    @media print {
+
+    @page {
+        size: A4 landscape;
+        margin: 12mm;
+    }
+
+    /* Force the whole page to print in white */
+    html,
+    body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    /* Force all text to black */
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    li,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stCaptionContainer"],
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
+    }
+
+    /* Hide Streamlit chrome */
+    header,
+    footer,
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+
+    /* Hide Streamlit buttons */
+    div.stButton,
+    [data-testid="stButton"] {
+        display: none !important;
+    }
+
+    /* Hide the custom print-button iframe */
+    iframe {
+        display: none !important;
+    }
+
+    /* Remove unnecessary app padding */
+    .block-container,
+    [data-testid="stMainBlockContainer"] {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Make bordered Streamlit containers printable */
+    [data-testid="stVerticalBlockBorderWrapper"],
+    [data-testid="stVerticalBlockBorderWrapper"] > div {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        border-color: #b0b0b0 !important;
+        box-shadow: none !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        display: block !important;
+    }
+
+    /* Force Streamlit columns to fit the page */
+    [data-testid="stHorizontalBlock"] {
+        width: 100% !important;
+        gap: 12px !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
+    [data-testid="column"] {
+        min-width: 0 !important;
+    }
+
+    /* Make Altair chart wrappers printable */
+    [data-testid="stVegaLiteChart"] {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+    }
+
+    [data-testid="stVegaLiteChart"] > div,
+    [data-testid="stVegaLiteChart"] canvas,
+    [data-testid="stVegaLiteChart"] svg {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        max-width: 100% !important;
+    }
+
+    /* Remove dark fills from generic Streamlit blocks */
+    [data-testid="stVerticalBlock"],
+    [data-testid="stElementContainer"] {
+        background: transparent !important;
+    }
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-page_col1, empty_col = st.columns([1,7])
+render_logo()
+
+page_col1, empty_col, print_col = st.columns([1, 6, 1])
+
 with page_col1:
-    if st.button('Back to Property Types Overview', use_container_width = True):
-        st.switch_page('pages/2_property_types.py')
+    if st.button("Back to Property Types",use_container_width=True):
+        st.switch_page(
+            "pages/2_property_types.py")
+
+with print_col:
+    html(
+        """
+        <button
+            onclick="window.parent.print()"
+            style="
+                width: 100%;
+                height: 42px;
+                background-color: #FFFAF0;
+                color: #000000;
+                border: 2px solid #F4EFEB;
+                border-radius: 10px;
+                font-size: 18px;
+                font-weight: 600;
+                cursor: pointer;
+            "
+            title="Print or save as PDF"
+        >
+            Print
+        </button>
+        """,
+        height=50
+    )
 
 session = get_session()
 

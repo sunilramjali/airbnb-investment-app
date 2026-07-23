@@ -1,5 +1,4 @@
 # Shared Snowflake session helper that works inside Streamlit-in-Snowflake and outside it.
-# Co-authored with CoCo
 """Shared Snowflake connection.
 
 When running inside Snowflake (Streamlit in Snowflake / SPCS), the active
