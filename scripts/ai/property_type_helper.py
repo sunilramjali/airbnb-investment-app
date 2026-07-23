@@ -21,7 +21,7 @@ import pandas as pd
 
 DATABASE       = 'AIRBNB_INVESTMENT_DB'
 GOLD_SCHEMA    = 'GOLD'
-OUTPUT_TABLE   = 'AI_OUTPUTS'
+OUTPUT_TABLE   = 'PROPERTY_TYPE_CACHE'
 OUTPUT_TYPE    = 'RECOMMENDATION'
 MODEL          = 'gemini-3.1-flash-lite'
 PROMPT_VERSION = 'v1'
@@ -55,17 +55,17 @@ PERSONAS = {
 def check_cache(session, city, neighbourhood, persona):
     try:
         result = session.sql(f"""
-            SELECT AI_NARRATIVE
+            SELECT "ai_narrative"
             FROM {DATABASE}.{GOLD_SCHEMA}.{OUTPUT_TABLE}
-            WHERE CITY = '{city}'
-            AND NEIGHBOURHOOD_CLEANSED = '{neighbourhood}'
-            AND PERSONA = '{persona}'
-            AND OUTPUT_TYPE = '{OUTPUT_TYPE}'
-            AND PROMPT_VERSION = '{PROMPT_VERSION}'
+            WHERE "city" = '{city}'
+            AND "neighbourhood_cleansed" = '{neighbourhood}'
+            AND "persona" = '{persona}'
+            AND "output_type" = '{OUTPUT_TYPE}'
+            AND "prompt_version" = '{PROMPT_VERSION}'
             LIMIT 1
         """).to_pandas()
         if len(result) > 0:
-            val = result.iloc[0]['AI_NARRATIVE']
+            val = result.iloc[0]['ai_narrative']
             if val and str(val).strip():
                 return str(val)
         return None
