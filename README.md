@@ -17,7 +17,9 @@ comparisons, and short-term-vs-long-term **gross-yield** strategy screens — al
 Snowflake with no query-time joins.
 
 This file is the project guide; read the `docs/` files for more detail. For the big-picture
-pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md).
+pipeline (Bronze → Silver → Gold), see [docs/architecture.md](docs/architecture.md). For how the
+tables are joined and what gets filtered (and why), see
+[docs/data_pipeline.md](docs/data_pipeline.md).
 
 ----------------------------------------------------------
 
@@ -68,6 +70,21 @@ testing/automation only.
 
 # Quick Start
 
+> ### Prerequisite — cloud accounts you must configure yourself
+>
+> This project reads its raw files from **your own AWS S3 bucket** and (optionally) deploys the
+> dashboard to **Streamlit Community Cloud**. Before running any step below you must:
+>
+> 1. **Configure AWS S3 and integrate it with Snowflake.** Create (or point at) an S3 bucket,
+>    give Snowflake read access via a **storage integration + IAM trust handshake**, and verify
+>    Snowflake can list the bucket. Full walkthrough in
+>    [Data Ingestion (Bronze) → Step 1](#step-1--one-time-setup-run-once-per-account) below.
+>    **Nothing loads until this is done** — the loader has no files to read otherwise.
+> 2. *(Optional, for the public dashboard)* **Configure Streamlit Community Cloud.** Create the
+>    read-only key-pair service user and paste the private key + connection details into the
+>    Community Cloud **Secrets** panel. See
+>    [Deploying the app (Streamlit)](#deploying-the-app-streamlit) below.
+
 Run these in order. The first three are **one-time** per account; the last one runs **every
 time** you want to (re)load data.
 
@@ -96,6 +113,14 @@ Once Bronze is loaded, build the upper layers:
 |---|------|------|------|
 | 11 | Build Silver (`*_CLEANED` tables) | `etl/cleaning_layer/cleaning_layer.py` | every build |
 | 12 | Build Gold (star + app marts) | `etl/aggregation_layer/aggregation_layer.py` | every build |
+
+Finally, deploy the dashboard (see [Deploying the app (Streamlit)](#deploying-the-app-streamlit)):
+
+| # | Step | File | When |
+|---|------|------|------|
+| 13 | Grant Gemini AI helper external access | `setup/gemini_external_access.sql` | once |
+| 14 | Deploy the Streamlit-in-Snowflake app | `Streamlit/airbnb-app/snowflake.yml` | on change |
+| 15 | *(Optional)* Create key-pair service user for Community Cloud | `setup/02_public_service_user.sql` | once |
 
 Current project database and warehouses:
 
@@ -318,7 +343,8 @@ uses `get_active_session()` (no credentials) on `AIRBNB_APP_WH` and executes, in
 
 1. `01_dimensions.sql` — conformed dimensions + generated `DIM_DATE`.
 2. `02_facts.sql` — facts at listing / listing×date grain.
-3. `03_app_marts.sql` — the app-facing consumer marts.
+3. `03_app_marts_core.sql` → `06_app_marts_amenities.sql` — the app-facing consumer marts
+   (core, property, strategy, amenities).
 
 It prints a `COUNT(*)` for every object it builds.
 
@@ -383,9 +409,71 @@ explicit `TARGET_LAG = '1 day'` freshness anchor; the upstream **dims/facts** us
 ### Adding a new gold object
 
 1. Add the `CREATE OR REPLACE DYNAMIC TABLE ...` to the relevant SQL file
-   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts.sql`).
+   (`01_dimensions.sql` / `02_facts.sql` / `03_app_marts_core.sql` .. `06_app_marts_amenities.sql`).
 2. Add its fully-qualified name to that step's `produces` list in `aggregation_layer.py`
    so the runner verifies its row count.
 
 ---
+
+# Deploying the app (Streamlit)
+
+The dashboard lives in `Streamlit/airbnb-app/` (entry point `landing.py`, screens under
+`pages/`). It reads the **GOLD marts only** on `AIRBNB_APP_WH` and calls the **Gemini API** for
+the AI narrative helpers. There are **two** supported deployment targets — pick one.
+
+### Prerequisites (both targets)
+
+1. Gold must be built (`etl/aggregation_layer/aggregation_layer.py`).
+2. Configure the **Gemini AI helper** external access — run `setup/gemini_external_access.sql`
+   as `ACCOUNTADMIN`, pasting your real key into the `GEMINI_API_KEY` secret first. It creates
+   the egress network rule, the API-key secret, the `AIRBNB_GEMINI_EAI` external access
+   integration, and binds them to the app. Without this the AI panels are disabled.
+
+### Option A — Streamlit in Snowflake (recommended)
+
+Deployed straight into Snowflake from `Streamlit/airbnb-app/snowflake.yml` (identifier
+`AIRBNB_INVESTMENT_DB.GOLD.AIRBNB_APP`, `query_warehouse: AIRBNB_APP_WH`). Deploy with the
+Snowflake CLI from that folder:
+
+```bash
+cd Streamlit/airbnb-app
+snow streamlit deploy --replace
+```
+
+Authentication is handled by the Snowflake session — **no service user or key pair needed**.
+
+### Option B — Streamlit Community Cloud (public deployment)
+
+To host the same app on the **Streamlit Community Cloud** platform
+(`share.streamlit.io`), the app runs *outside* Snowflake, so you must give it a read-only way
+to connect and configure it through the Community Cloud UI:
+
+1. **Create the read-only key-pair service user.** Run `setup/02_public_service_user.sql` as
+   `ACCOUNTADMIN`. It creates `AIRBNB_APP_PUBLIC_ROLE`, the `AIRBNB_APP_SVC` service user
+   (key-pair auth, no password), and read-only `GOLD` grants (plus one `INSERT` for the AI
+   cache table). The **public** half of the key pair is already in that file; keep the matching
+   **private** key (`deploy_secrets/rsa_key.p8`) out of git — it goes only into Community Cloud.
+2. **Connect the GitHub repo** to Community Cloud and point it at
+   `Streamlit/airbnb-app/landing.py` as the main file.
+3. **Fill in the Community Cloud "Secrets" panel** (Advanced settings → Secrets) with your
+   Snowflake connection + the private key and the Gemini key, e.g.:
+   ```toml
+   [connections.snowflake]
+   account   = "<your_account_locator>"
+   user      = "AIRBNB_APP_SVC"
+   role      = "AIRBNB_APP_PUBLIC_ROLE"
+   warehouse = "AIRBNB_APP_WH"
+   database  = "AIRBNB_INVESTMENT_DB"
+   schema    = "GOLD"
+   private_key_file = "rsa_key.p8"   # uploaded via the Secrets panel, never committed
+
+   gemini_api_key = "<PASTE_YOUR_GEMINI_API_KEY>"
+   ```
+4. **Deploy** from the Community Cloud dashboard. The app boots, authenticates as the service
+   user, and reads the GOLD marts read-only.
+
+> Rotate or disable access any time from Snowflake:
+> `ALTER USER AIRBNB_APP_SVC SET RSA_PUBLIC_KEY = '<new key>';` or
+> `ALTER USER AIRBNB_APP_SVC SET DISABLED = TRUE;`
+
 
