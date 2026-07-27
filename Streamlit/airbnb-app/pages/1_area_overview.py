@@ -3,261 +3,13 @@ import pydeck as pdk
 import json
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
+from styles import apply_theme
 from nav import render_breadcrumb
 
 st.set_page_config(layout='wide')
 #st.write("Checking 1 2 3")
 
-#CUSTOM CSS SCRIPT FOR PAGE LOOK
-st.markdown(
-    """
-    <style>
-    /* Main app */
-    .stApp {
-        background-color: white !important;
-    }
-
-    [data-testid="stFullScreenFrame"] {
-        background-color: white !important;
-    }
-
-    [data-testid="stBottom"],
-    [data-testid="stBottom"] > div,
-    [data-testid="stBottomBlockContainer"] {
-        left: 0px !important;
-        right: auto !important;
-        width: 62% !important;
-        max-width: 950px !important;
-        min-width: 500px !important;
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        transform: none !important;
-        background: transparent !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        border-top: none !important;
-        pointer-events: none !important;
-        bottom: 0 !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        padding-bottom: 0 !important;
-    }
-
-    [data-testid="stBottomBlockContainer"] > div {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        width: 100% !important;
-        max-width: 950px !important;
-        background-color: white !important;
-        border: 1px solid #f26359 !important;
-        border-radius: 12px !important;
-        padding: 16px !important;
-        pointer-events: auto !important;
-        max-height: 42vh !important;
-        overflow-y: auto !important;
-    }
-    [data-testid="stBottomBlockContainer"] [data-testid="stVerticalBlock"] {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        width: 100% !important;
-    }
-
-    [data-testid="stBottomBlockContainer"] [data-testid="stElementContainer"] {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-    }
-
-    [data-testid="stExpander"] summary {
-        background-color: #f8d9d3 !important;
-    }
-
-    [data-testid="stExpander"] summary:hover {
-        background-color: #f26359 !important;
-    }
-
-    [data-testid="stExpander"] details[open] summary {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        display: none !important;
-    }
-
-    [data-testid="collapsedControl"] {
-        display: none !important;
-    }
-    
-    section[data-testid="stSidebar"] {
-        background-color: white !important;
-        display: none !important;
-    }
-
-    [data-testid="stSelectbox"] input {
-        background-color: #f8d9d3 !important;
-        color: #f26359 !important;
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    [data-testid="stSelectbox"] button {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Big headings */
-    h1, h2 {
-        color: #f26359 !important;
-    }
-
-    /* Smaller headings */
-    h3, h4, h5, h6 {
-        color: #000000 !important;
-    }
-
-    /* Normal markdown text */
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] li {
-        color: #000000 !important;
-    }
-
-    /* Captions */
-    [data-testid="stCaptionContainer"] {
-        color: #000000 !important;
-    }
-
-    div[data-testid="stAlert"] {
-        background-color: #FCEDEA !important;
-        color: #7A2E2A !important;
-        border: 1px solid #F26359 !important;
-        border-left: 6px solid #F26359 !important;
-        border-radius: 12px !important;
-    }
-
-    div[data-testid="stAlert"] p,
-    div[data-testid="stAlert"] div {
-        color: #7A2E2A !important;
-    }
-
-    /* Metrics */
-    [data-testid="stMetricLabel"],
-    [data-testid="stMetricValue"] {
-        color: #000000 !important;
-    }
-
-    /* Buttons */
-    div.stButton > button[kind="secondary"] {
-        background-color:#FFFAF0 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-        border-radius: 12px !important;
-    }
-
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-    }
-
-    div.stButton > button[kind="primary"] {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: #f8d9d3 !important;
-        border: 2px solid #f26359 !important;
-        border-radius: 12px !important;
-    }
-
-    div.stButton > button p {
-        white-space: pre-line !important;
-        text-align: center !important;
-        line-height: 1.3 !important;
-    }
-
-    [data-testid="stLinkButton"] a {
-        background-color:#FFFAF0 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-        border-radius: 12px !important;
-    }
-
-    [data-testid="stLinkButton"] a:hover {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-    }
-
-     /* Multiselect outer box */
-    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Text typed inside the multiselect */
-    [data-testid="stMultiSelect"] input {
-        color: #000000 !important;
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    /* Placeholder text */
-    [data-testid="stMultiSelect"] input::placeholder {
-        color: #7A2E2A !important;
-        opacity: 1 !important;
-    }
-
-    /* Selected option boxes / tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-        background-color: #f26359 !important;
-        color: #ffffff !important;
-        border-radius: 8px !important;
-    }
-
-    /* Text inside selected tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
-        color: #ffffff !important;
-    }
-
-    /* Remove icon inside selected tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }
-
-    /* Dropdown menu background */
-    div[data-baseweb="popover"] ul {
-        background-color: #ffffff !important;
-    }
-
-    /* Dropdown options */
-    div[data-baseweb="popover"] li {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-
-    /* Dropdown option hover */
-    div[data-baseweb="popover"] li:hover {
-        background-color: #f8d9d3 !important;
-        color: #000000 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+apply_theme(bottom_panel=True)
 
 render_breadcrumb("area_overview")
 
@@ -333,9 +85,9 @@ if persona is None:
     st.warning('No persona selected. Please go back to the homepage and select a persona.')
     st.stop()
 
-neighbourhoods = load_neighbourhoods(session, persona)
-
-ai_summary = load_summary(session)
+with st.spinner('Loading neighbourhoods...'):
+    neighbourhoods = load_neighbourhoods(session, persona)
+    ai_summary = load_summary(session)
 
 #City filter
 city_col, empty_col = st.columns([1, 3])
@@ -353,6 +105,22 @@ else:
 st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].tolist()
 
 #VISUALISATIONS ---
+RANK_COLORS = {1: "#D4AF37", 2: "#A8A9AD", 3: "#CD7F32"}  # gold / silver / bronze
+
+
+def rank_badge(rank):
+    color = RANK_COLORS.get(rank, "#000000")
+    st.markdown(
+        f"""<div style='
+            display: flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; border-radius: 50%;
+            background-color: {color}; color: white;
+            font-size: 18px; font-weight: 700;
+        '>{rank}</div>""",
+        unsafe_allow_html=True,
+    )
+
+
 acol1, acol2, acol3 = st.columns([1, 1, 1], border=True)
 
 def find_best_neighbourhoods(index):
@@ -376,8 +144,7 @@ with acol1:
     num_col, city_col = st.columns([1,7], border=False)
 
     with num_col:
-        st.markdown("<div style='font-size: 22px; font-weight: 600;'>1.</div>", unsafe_allow_html=True
-)
+        rank_badge(1)
 
     with city_col:
         find_best_neighbourhoods(0)
@@ -386,8 +153,7 @@ with acol2:
     num_col, city_col = st.columns([1,7], border=False)
 
     with num_col:
-        st.markdown("<div style='font-size: 22px; font-weight: 600;'>2.</div>", unsafe_allow_html=True
-)
+        rank_badge(2)
 
     with city_col:
         find_best_neighbourhoods(1)
@@ -396,8 +162,7 @@ with acol3:
     num_col, city_col = st.columns([1,7], border=False)
 
     with num_col:
-        st.markdown("<div style='font-size: 22px; font-weight: 600;'>3.</div>", unsafe_allow_html=True
-)
+        rank_badge(3)
 
     with city_col:
         find_best_neighbourhoods(2)
