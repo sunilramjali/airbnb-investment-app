@@ -13,6 +13,12 @@ deploy_secrets/
 
 # Ignore Claude Prompt
 CLAUDE.md
+.claude/
+
+# NOTE: LOG.md is deliberately NOT ignored. Since the Snowflake trial expired
+# (2026-07-28) it is the only surviving record of how the old system behaved —
+# including the corrections that stop a future session repeating the 141,206
+# baseline mistake. It belongs in version control.
 
 # Ignore python cache
 __pycache__/
