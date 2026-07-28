@@ -8,17 +8,20 @@ Renders a consistent, professional top navigation bar across pages:
   link text (fixes the misaligned-chevron issue caused by st.page_link's
   taller component box).
 """
+import base64
+import mimetypes
 import os
 
 import streamlit as st
 
 # Absolute path to the bundled logo, resolved from this file's location so it
 # works from both the app root and pages/ scripts, in Snowsight and deployed.
-_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "bnb_logo_original.webp")
+_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "bnb_logo_original_cropped.png")
+_LOGO_SIZE = 50  # px, square
 
-# Main linear flow: (key, label, page target)
+# Main linear flow (the logo itself links back to landing, so it isn't repeated
+# here): (key, label, page target)
 FLOW = [
-    ("landing", "Landing", "landing.py"),
     ("area_overview", "Area Overview", "pages/1_area_overview.py"),
     ("property_types", "Property Types", "pages/2_property_types.py"),
     ("listing_candidates", "Listing Candidates", "pages/3_listing_candidates.py"),
@@ -37,6 +40,7 @@ _CSS = """
 [data-testid="stPageLink"] a {
     display: flex !important;
     align-items: center !important;
+    justify-content: center !important;
     padding: 0 !important;
     margin: 0 !important;
     min-height: 0 !important;
@@ -48,7 +52,7 @@ _CSS = """
 }
 
 [data-testid="stPageLink"] a p {
-    font-size: 0.95rem !important;
+    font-size: 1.15rem !important;
     font-weight: 500 !important;
     margin: 0 !important;
 }
@@ -63,10 +67,11 @@ _CSS = """
 .breadcrumb-current {
     display: flex;
     align-items: center;
+    justify-content: center;
     height: 100%;
     min-height: 1.4rem;
     color: #F26359;
-    font-size: 0.95rem;
+    font-size: 1.15rem;
     font-weight: 700;
     line-height: 1.2;
     white-space: nowrap;
@@ -79,41 +84,65 @@ def _inject_css() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
-def render_logo() -> None:
-    """Render the BnB Invest logo top-left, flush to the top of the page."""
-    if os.path.exists(_LOGO_PATH):
+def _logo_css() -> None:
+    st.markdown(
+        """
+        <style>
+        /* Pull page content flush to the top (removes space above logo) */
+        .block-container,
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 0rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _logo_data_uri() -> str | None:
+    if not os.path.exists(_LOGO_PATH):
+        return None
+    mime = mimetypes.guess_type(_LOGO_PATH)[0] or "application/octet-stream"
+    with open(_LOGO_PATH, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _render_logo_image() -> None:
+    """Renders the logo as a real (JS-routed) page-link to landing.py, so
+    clicking the logo itself navigates home."""
+    uri = _logo_data_uri()
+    if uri is None:
+        return
+
+    with st.container(key="nav_logo_link"):
         st.markdown(
-            """
+            f"""
             <style>
-            /* Pull page content flush to the top (removes space above logo) */
-            .block-container,
-            [data-testid="stMainBlockContainer"] {
-                padding-top: 1rem !important;
-            }
-            /* Remove default margins around the logo image */
-            [data-testid="stImage"],
-            [data-testid="stImageContainer"] {
-                margin: 0 !important;
-            }
-            [data-testid="stImage"] img,
-            [data-testid="stImageContainer"] img {
-                margin: 0 !important;
-                display: block;
-            }
+            .st-key-nav_logo_link [data-testid="stPageLink"] a {{
+                padding: 12px !important;
+                min-height: {_LOGO_SIZE}px !important;
+                height: {_LOGO_SIZE}px !important;
+                width: {_LOGO_SIZE}px !important;
+                background-image: url('{uri}') !important;
+                background-size: contain !important;
+                background-repeat: no-repeat !important;
+                background-position: center !important;
+            }}
+            .st-key-nav_logo_link [data-testid="stPageLink"] a p {{
+                opacity: 0 !important;
+            }}
             </style>
             """,
             unsafe_allow_html=True,
         )
-        st.image(_LOGO_PATH, width=150)
+        st.page_link("landing.py", label="Home")
 
 
-def render_doc_link() -> None:
-    """Right-aligned Documentation page-link only (used on the landing page)."""
-    render_logo()
-    _inject_css()
-    _, doc_col = st.columns([8, 1], vertical_alignment="center")
-    with doc_col:
-        st.page_link(_DOC_PAGE, label="Documentation")
+def render_logo() -> None:
+    """Render the BnB Invest logo top-left, flush to the top of the page."""
+    _logo_css()
+    _render_logo_image()
 
 
 def render_breadcrumb(current: str) -> None:
@@ -122,22 +151,25 @@ def render_breadcrumb(current: str) -> None:
     ``current`` is one of the FLOW keys. Earlier steps render as links, the
     current step is emphasised; later steps are omitted (progressive trail).
     """
-    render_logo()
+    _logo_css()
     _inject_css()
 
     keys = [k for k, _, _ in FLOW]
     current_index = keys.index(current)
     trail = FLOW[: current_index + 1]
 
-    # One slot per crumb, a flexible spacer, then the Documentation link.
-    ratios = [1.4 for _ in trail]
+    # Logo slot, one slot per crumb, a flexible spacer, then the Documentation link.
+    ratios = [0.7] + [1.4 for _ in trail]
     ratios.append(max(1.0, 8 - sum(ratios)))  # spacer
     ratios.append(1.4)                         # doc link
 
     cols = st.columns(ratios, vertical_alignment="center")
 
+    with cols[0]:
+        _render_logo_image()
+
     for i, (key, label, target) in enumerate(trail):
-        with cols[i]:
+        with cols[i + 1]:
             if key == current:
                 st.markdown(
                     f"<span class='breadcrumb-current'>{label}</span>",
@@ -152,14 +184,21 @@ def render_breadcrumb(current: str) -> None:
 
 
 def render_nav_links() -> None:
-    """All main-flow steps as page-links (used on the Documentation page)."""
-    render_logo()
+    """Full navigation bar: logo + every main-flow page + Documentation link."""
+    _logo_css()
     _inject_css()
 
-    ratios = [1.4 for _ in FLOW]
-    ratios.append(max(1.0, 8 - sum(ratios)))  # trailing spacer
+    ratios = [0.7] + [1.4 for _ in FLOW]
+    ratios.append(max(1.0, 8 - sum(ratios)))  # spacer
+    ratios.append(1.4)                         # doc link
     cols = st.columns(ratios, vertical_alignment="center")
 
+    with cols[0]:
+        _render_logo_image()
+
     for i, (_, label, target) in enumerate(FLOW):
-        with cols[i]:
+        with cols[i + 1]:
             st.page_link(target, label=label)
+
+    with cols[-1]:
+        st.page_link(_DOC_PAGE, label="Documentation")
