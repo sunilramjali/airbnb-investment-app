@@ -129,6 +129,19 @@ WHERE STRUCTURE_CLASS IN ('Flat','House')   -- purchasable dwellings only (hotel
   AND IS_ACTIVE                              -- actively let: estimated 30+ booked nights, trailing 12m
 ```
 
+> **⚠️ This was aspirational until 2026-07-28, not actual.** `MART_AREA_OVERVIEW` applied *none*
+> of the three filters, so its operating metrics were computed over 102,591 listings (hotels,
+> private rooms, dormant calendars) while the property and strategy marts used 25,731 — a 4×
+> universe difference presented as one number. Westminster reported £26,980 average annual revenue
+> on the area screen and £56,385 on the property screen. Fixed in the Databricks port
+> (`databricks/aggregation_layer/03_app_marts_core.sql`); all 108 areas now reconcile on count,
+> revenue and occupancy. **The Snowflake original still has the defect.**
+>
+> **One deliberate exception:** `MART_AREA_OVERVIEW.LISTING_COUNT` remains *all* listings — it
+> answers "how big is this area's Airbnb market?" and the app consumes it as market size. The
+> like-for-like base is exposed separately as `LISTING_COUNT_INVESTABLE`, and every operating
+> metric in that mart is computed on it.
+
 - **Why `STRUCTURE_CLASS IN ('Flat','House')`** — only these have a Land Registry sale comparator,
   so a buy-vs-rent yield can be computed honestly. `NULL`-class types (hotels, guest accommodation,
   unique stays, outdoor) are kept in the data but excluded from the yield comparison.

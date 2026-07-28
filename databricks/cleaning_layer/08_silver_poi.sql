@@ -15,8 +15,23 @@
 --   * Validate: must have a name, a location, and an amenity group.
 --   * Assign to a borough by point-in-polygon.
 --   * Deduplicate to one row per POI; latest load wins.
---   * CONFIDENCE is carried through unfiltered — GOLD.DIM_POI applies its own
---     >= 0.5 threshold, so each consumer chooses.
+--
+-- ⚠️ POI RELEVANCE IS FILTERED IN TWO PLACES, ONE LAYER APART. Know both:
+--
+--     Silver (here)   curated amenity allow-list   634,958 -> 134,713
+--     Gold (DIM_POI)  CONFIDENCE >= 0.5            134,713 -> 122,560
+--
+--   CONFIDENCE is deliberately carried through UNFILTERED here so the threshold
+--   stays a consumer decision. Be honest about what that is worth: there is
+--   currently exactly ONE consumer (GOLD.DIM_POI) and it hard-codes 0.5, so the
+--   flexibility is theoretical while the cost is real — "how many POIs are
+--   there?" has two correct answers depending on which layer you ask.
+--
+--   Kept split rather than collapsed because the two filters answer different
+--   questions (is this POI investment-RELEVANT? vs is this record TRUSTWORTHY?),
+--   and folding a data-quality threshold into a business allow-list would make
+--   the allow-list harder to reason about. If a second consumer never appears,
+--   collapsing CONFIDENCE into this file is the right simplification.
 --
 -- ============================================================
 -- WHAT CHANGED FROM SNOWFLAKE — less than expected

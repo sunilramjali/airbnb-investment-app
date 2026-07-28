@@ -188,6 +188,15 @@ SELECT
     (CATEGORY ILIKE ANY ('%station%','%bus%','%transit%','%subway%','%tram%')) AS IS_TRANSPORT,
     (AMENITY_GROUP ILIKE '%dining%')                                           AS IS_DINING
 FROM AIRBNB_INVESTMENT.SILVER.POI_CLEANED
+-- ⚠️ THIS IS THE SECOND POI FILTER, ONE LAYER ABOVE THE FIRST.
+--    Silver 08_silver_poi.sql already applied the curated amenity allow-list
+--    (634,958 -> 134,713). This trims a further 12,153 low-confidence records
+--    (134,713 -> 122,560), so the POI count differs by layer BY DESIGN:
+--      SILVER.POI_CLEANED = 134,713   (investment-relevant)
+--      GOLD.DIM_POI       = 122,560   (relevant AND trustworthy)
+--    Every POI figure in Gold — FCT_LISTING_POI, MART_AREA_POI,
+--    MART_AREA_OVERVIEW.POI_COUNT — is on the 122,560 base. See the note in
+--    08_silver_poi.sql for why the two filters were kept separate.
 WHERE CONFIDENCE >= 0.5;   -- keep reasonably confident POIs only
 
 -- ------------------------------------------------------------

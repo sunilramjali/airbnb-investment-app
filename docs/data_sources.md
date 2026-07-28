@@ -159,8 +159,16 @@ A live share — there is **no S3 stage or file format**. The loader
 [`etl/ingestion_layer/05_overture_poi_load.sql`](../etl/ingestion_layer/05_overture_poi_load.sql)
 reads the share directly and writes a **spatially scoped** snapshot to `BRONZE.RAW_OVERTURE_POI` —
 only POIs that fall inside the ingested borough polygons (London / Greater Manchester / Bristol),
-via a bounding-box prefilter + exact point-in-polygon `ST_WITHIN` against
-`SILVER.NEIGHBOURHOODS_GEO_CLEANED`. `CREATE OR REPLACE` keeps re-runs idempotent.
+via a bounding-box prefilter + exact point-in-polygon `ST_WITHIN`.
+`CREATE OR REPLACE` keeps re-runs idempotent.
+
+> **⚠️ The polygon source changed in the Databricks port.** Snowflake scoped against
+> `SILVER.NEIGHBOURHOODS_GEO_CLEANED` — a **Bronze → Silver dependency**, which inverts the
+> medallion order (Silver's `POI_CLEANED` in turn reads `BRONZE.RAW_OVERTURE_POI`, closing the
+> loop). `databricks/ingestion_layer/05_overture_poi_load.sql` scopes against
+> `BRONZE.RAW_NEIGHBOURHOODS_GEO` instead, so Bronze depends only on Bronze and the layering is
+> clean. The polygons are identical — Silver's transform reshapes the GeoJSON but does not alter
+> the geometry — so the scoping result is unchanged.
 
 | Share object | Bronze table | Notes |
 |---|---|---|

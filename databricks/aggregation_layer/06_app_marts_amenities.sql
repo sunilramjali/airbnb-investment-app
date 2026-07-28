@@ -128,7 +128,13 @@ SELECT
     ROUND(g.TOP_WITH  / NULLIF(ss.TOP_N, 0),  4)                                      AS PCT_TOP,
     ROUND(g.REST_WITH / NULLIF(ss.REST_N, 0), 4)                                      AS PCT_REST,
     ROUND(g.TOP_WITH / NULLIF(ss.TOP_N, 0) - g.REST_WITH / NULLIF(ss.REST_N, 0), 4)   AS GAP,
-    (ss.TOP_N + ss.REST_N)                                                            AS AREA_ACTIVE_LISTINGS,
+    -- ⚠️ RENAMED from AREA_ACTIVE_LISTINGS (Databricks port, 2026-07-28).
+    --    "Active" means OCCUPANCY_NIGHTS >= 30 everywhere else in this layer
+    --    (the conformed IS_ACTIVE flag, 37,046 listings). The population here is
+    --    ANNUAL_REVENUE > 0 — a deliberately looser 47,838, a 29% difference.
+    --    Both definitions are defensible; sharing the word "active" between them
+    --    was not. Safe rename: no app file reads this mart.
+    (ss.TOP_N + ss.REST_N)                                                            AS AREA_RANKED_LISTINGS,
     (ss.TOP_N >= 5 AND ss.REST_N >= 15)                                               AS SUFFICIENT_SAMPLE
 FROM grp g
 JOIN seg_size ss
@@ -151,10 +157,10 @@ COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITIES.PCT_LISTINGS_WITH_G
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.NEIGHBOURHOOD IS 'Area name.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.CITY IS 'City of the neighbourhood.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.AMENITY_GROUP IS 'Curated amenity group.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.TOP_N IS 'Active listings in the top revenue quartile.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.REST_N IS 'Active listings in revenue quartiles 2-4.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.TOP_N IS 'Listings in the top revenue quartile. Population is ANNUAL_REVENUE > 0, NOT the conformed IS_ACTIVE (>=30 booked nights) used elsewhere in this layer.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.REST_N IS 'Listings in revenue quartiles 2-4. Same ANNUAL_REVENUE > 0 population as TOP_N.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.PCT_TOP IS 'Share (0..1) of top-quartile listings offering the group.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.PCT_REST IS 'Share (0..1) of the rest offering the group.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.GAP IS 'PCT_TOP minus PCT_REST; positive = winners over-index on this group.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.AREA_ACTIVE_LISTINGS IS 'Total active listings (TOP_N + REST_N).';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.AREA_RANKED_LISTINGS IS 'Listings ranked for the quartile split (TOP_N + REST_N). Renamed from AREA_ACTIVE_LISTINGS: this population is ANNUAL_REVENUE > 0, which is 29% larger than the conformed IS_ACTIVE (>=30 booked nights) used by the property and strategy marts.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_AMENITY_GAP.SUFFICIENT_SAMPLE IS 'TRUE if TOP_N >= 5 AND REST_N >= 15 (quartile split trustworthy).';
