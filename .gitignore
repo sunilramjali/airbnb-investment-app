@@ -13,7 +13,15 @@ deploy_secrets/
 
 # Ignore Claude Prompt
 CLAUDE.md
-.claude/
+
+# Claude project config — keep personal settings out, track shared agents.
+# .claude/agents/ holds the Snowflake->Databricks migration agent: the repo
+# inventory, the translation reference and the verification model. A reviewer
+# who only has LOG.md gets the findings but not the method, so it is shared.
+# .claude/settings.local.json stays ignored — machine-specific absolute paths
+# and a personal permission allowlist, of no use to anyone else.
+.claude/*
+!.claude/agents/
 
 # NOTE: LOG.md is deliberately NOT ignored. Since the Snowflake trial expired
 # (2026-07-28) it is the only surviving record of how the old system behaved —
