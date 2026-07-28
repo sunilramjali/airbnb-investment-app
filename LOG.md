@@ -5,6 +5,228 @@ Read this before starting any migration work.
 
 ---
 
+## 2026-07-28 — Session 6: **SILVER IS COMPLETE (14 of 14) + driver**
+
+**Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)
+
+### Status: all 14 Silver files ported, run and verified. Every drop attributable.
+
+Silver was split into three phases: **A** = DDL + the row-preserving transforms
+(01, 02, 03, 04, 05, 07) · **B** = VARIANT + geospatial (06, 08, 11, 12) ·
+**C** = ONSPD rewrite + crosswalks (09, 10, 13, 14) + the driver.
+
+| Table | Bronze in | Silver out | Dropped | Grain unique? |
+|---|---|---|---|---|
+| `listings_cleaned` | 102,591 | 102,591 | 0 | ✅ |
+| `calendar_cleaned` | 37,510,686 | 37,510,686 | 0 | ✅ (365.0/listing) |
+| `reviews_cleaned` | 2,676,100 | 2,676,100 | 0 | ✅ |
+| `neighbourhoods_cleaned` | 108 | 108 | 0 | ✅ |
+| `price_paid_cleaned` | 5,249,688 | 871,514 | 4,378,174 | ✅ |
+
+**The Price Paid drop is fully attributable** — bronze rows in the three target counties =
+871,514, silver = 871,514, so **zero rows lost to validation**; the whole gap is the documented
+county filter. That is the row-accounting gate passing its first real test.
+
+📄 **Two documented Snowflake-era invariants reproduced exactly:** `neighbourhoods_cleaned` = 108
+rows, and Price Paid `quality_flag = non_standard` at **19.86%** against the documented ~20%
+(bounds are fixed round numbers, not percentiles, so this is a real reproduction).
+
+### 🔴 THE DOUBLE-QUOTE TRAP — WOULD HAVE SILENTLY EMPTIED FOUR TABLES
+The Snowflake originals quote every bronze column as `"id"`, `"date"`, `"neighbourhood"` because
+PARSE_HEADER made them case-sensitive lowercase identifiers.
+
+**In Databricks, `"id"` is the STRING LITERAL `'id'`, not the column.** Verified live:
+```
+SELECT `id`, "id" FROM airbnb_investment.bronze.raw_listings  ->  11551 | id
+```
+Ported verbatim, `TRY_CAST("id" AS DECIMAL(38,0))` casts the text `'id'`, returns NULL for every
+row, and `WHERE listing_id IS NOT NULL` then drops all 102,591 — leaving an **empty table with no
+error**. Occurrences: 02 (74), 03 (7), 04 (8), 05 (4), 06 (1). All now backticked.
+
+### 🔴 ST_AREA HAS THE SAME UNIT TRAP AS ST_DWITHIN — a NEW instance
+`06_silver_neighbourhoods_geo.sql:42` computes `ST_AREA(TO_GEOGRAPHY(...)) / 1e6`. Snowflake's
+`ST_AREA` on GEOGRAPHY returns **square metres**; Databricks' returns **square degrees** at SRID
+4326. Measured, against real borough areas:
+
+| Borough | naive `st_area` | `st_area(st_transform(b,27700))/1e6` | true |
+|---|---|---|---|
+| Kingston upon Thames | 0.00481 | **37.26** | 37.25 km² |
+| Croydon | 0.01116 | **86.49** | 86.52 km² |
+| Bromley | 0.01938 | **150.13** | 150.15 km² |
+
+A naive port is wrong by ~8 orders of magnitude and nothing fails. The log previously flagged only
+`ST_DWITHIN`; **the trap applies to every metric ST_ function, not just distance.** Fix lands in
+Phase B.
+
+### Other findings verified this session (not assumed)
+- ✅ `TRANSLATE(x,'{}','')` ports unchanged — `translate('{ABC-123}','{}','')` → `ABC-123`. Both
+  engines delete when "to" is shorter. Checked because it defines the `transaction_uid` grain.
+- ✅ `raw_overture_poi.GEOMETRY` is already native `GEOMETRY` at **SRID 4326** for all 634,958 rows,
+  so `p.GEOMETRY AS location` in file 08 ports **unchanged**. `NAMES`/`CATEGORIES` are STRUCT →
+  accessor change needed.
+- ✅ `st_geomfromgeojson` returns SRID 4326, but takes a **STRING** — `f.value:geometry` is VARIANT,
+  so it needs `to_json(...)` wrapped around it. `TO_GEOGRAPHY` accepted the VARIANT directly.
+- ✅ `LATERAL variant_explode(raw:features)` works; VARIANT path accessors port verbatim.
+- `NUMBER(p,s)` → `DECIMAL(p,s)`; `FLOAT` → **`DOUBLE`** (Snowflake FLOAT is 8-byte double,
+  Databricks FLOAT is 4-byte REAL — lat/long would lose sub-metre precision).
+
+### ⚠️ Two things to resolve later
+1. **178 orphan listing_ids.** `calendar_cleaned` has 102,769 distinct `listing_id` but
+   `listings_cleaned` has 102,591. Harmless in Silver (no join), but it will silently shrink any
+   INNER join in Gold. Decide the join direction deliberately.
+2. **`CLEAN_AUDIT` is empty** — Phase A ran the `.sql` files directly through `run_sql.py`. The
+   audit rows come from `cleaning_layer.py`, which is Phase C.
+
+### Phase B also done — 06, 08, 11 ported, run and verified
+
+| Table | Rows | Grain unique? | Key check |
+|---|---|---|---|
+| `neighbourhoods_geo_cleaned` | **108** | ✅ | 📄 documented invariant PASSED |
+| `poi_cleaned` | 134,713 | ✅ | **0** POIs unassigned to a borough |
+| `listing_amenities` | 2,992,739 | ✅ | `Other` only **0.2%** of 13 groups |
+
+🌍 **The ST_AREA fix validated against reality.** The 108 borough areas sum to **2,961 km²**;
+true is London 1,572 + Greater Manchester 1,276 + Bristol 110 ≈ **2,958 km²** — a 0.1% match.
+The naive port would have summed to ~0.38 (square degrees).
+
+🔬 **All 134,713 POIs got a borough, zero unassigned** — the strongest available evidence the
+SRIDs line up (polygons from `st_geomfromgeojson` at 4326 vs Bronze `GEOMETRY` at 4326). A
+mismatch would have produced mass NULLs through the LEFT JOIN, not an error.
+
+🔬 **`Other` at 0.2% proves the VARIANT→STRING cast is clean.** Had `f.value::string` kept the JSON
+quotes, every LIKE in the ordered CASE would have failed and ~100% of 2,992,739 rows would have
+landed in `Other` — in a table that still looks perfectly healthy. 29.2 amenities per listing
+across 102,378 listings; Kitchen & Dining 28.4% is the top group.
+
+### 🔴 SPLIT_PART(_FILENAME,'/',3) NO LONGER YIELDS THE CITY
+Snowflake stored a **stage-relative** path so the city sat at position 3. Databricks
+`_metadata.file_path` is a **full s3:// URL**, so position 3 is the *bucket name*:
+```
+s3://airbnb-investment-app-988261629236-eu-west-2-an/raw/inside_airbnb/london/...
+ 1     3(bucket)                                      4    5             6(city)
+```
+Ported verbatim, the `CASE SPLIT_PART(...)` in file 12 — and in Gold's `DIM_NEIGHBOURHOOD`, which
+`docs/data_pipeline.md:111` says uses "the same rule" — matches nothing and sets **CITY = NULL on
+every row**. Silent. Affects files 12 and 14, both still to port. Use a depth-independent extract
+rather than just changing 3 to 6, so a bucket or prefix change cannot break it again.
+
+### Verified to port verbatim (checked, not assumed)
+`try_parse_json` (returns NULL on bad JSON — load-bearing) · `f.value::string` strips JSON quotes ·
+`SPLIT_PART` is 1-indexed and handles the **en dash** `' – '` · `LATERAL variant_explode` +
+`:path::type` accessors · Overture `NAMES.primary` / `CATEGORIES.primary` STRUCT accessors ·
+`p.GEOMETRY` needs no conversion · `ST_WITHIN` is topological so **no unit trap**.
+
+### Created this session
+```
+databricks/cleaning_layer/01_silver_ddl.sql          02_silver_listings.sql
+databricks/cleaning_layer/03_silver_calendar.sql     04_silver_reviews.sql
+databricks/cleaning_layer/05_silver_neighbourhoods.sql  07_silver_price_paid.sql
+databricks/cleaning_layer/06_silver_neighbourhoods_geo.sql  08_silver_poi.sql
+databricks/cleaning_layer/11_silver_amenities.sql
+```
+
+### Phase C done — **SILVER IS COMPLETE (14 of 14) + driver**
+
+Full driver run `run_id 508237821978575` → SUCCESS. `SILVER.CLEAN_AUDIT` populated, 13 rows:
+
+| Table | rows_in | rows_out | dropped | attributable to |
+|---|---|---|---|---|
+| `listings_cleaned` | 102,591 | 102,591 | 0 | — |
+| `calendar_cleaned` | 37,510,686 | 37,510,686 | 0 | — |
+| `reviews_cleaned` | 2,676,100 | 2,676,100 | 0 | — |
+| `neighbourhoods_cleaned` | 108 | 108 | 0 | — |
+| `neighbourhoods_geo_cleaned` | 108 | 108 | 0 | — |
+| `price_paid_cleaned` | 5,249,688 | 871,514 | 4,378,174 | county filter (verified: 0 lost to validation) |
+| `poi_cleaned` | 634,958 | 134,713 | 500,245 | curated amenity allow-list — *is* the relevance filter |
+| `code_point_cleaned` | 2,700,777 | 2,700,777 | 0 | — |
+| `property_group_map` | 51 | 51 | 0 | — |
+| `listing_amenities` | 2,992,739 | 2,992,739 | 0 | — |
+| `postcode_neighbourhood_map` | 2,700,777 | 461,861 | 2,238,916 | UK-wide ONSPD → 3 cities' polygons |
+| `ons_private_rent_cleaned` | 54,252 | 54,252 | 0 | — |
+| `neighbourhood_ons_area_map` | 108 | 108 | 0 | — |
+
+**Every drop is attributable to a documented rule. No unexplained loss anywhere in Silver.**
+
+### 📄 THE 99.95% COVERAGE INVARIANT — measured and fully attributed
+```
+157,725 'ok' Price Paid postcodes · 157,383 mapped · 342 unmapped · 99.783%
+```
+🔴 **The denominator is EXACTLY 157,725 — identical to the Snowflake-era figure**
+(`docs/data_pipeline.md:87`). `PRICE_PAID_CLEANED` was rebuilt from scratch on a different platform
+and reproduced the old count to the row. **This is the closest thing to a genuine Snowflake parity
+check that exists anywhere in this migration** — and it was not designed for, it fell out.
+
+| Cause of the 342 | n | verdict |
+|---|---|---|
+| Absent from ONSPD entirely | **298** | stale edition — **292 (98%) have sales on/after Feb 2024**, the exact edition boundary |
+| Geocoded, outside every polygon | 42 | genuine |
+| Present but ungeocoded (sentinel) | 2 | genuine |
+
+Both predicted effects are now **measured, not speculated**: ⬇️ 298 lost to the nine-release-old
+edition, ⬆️ genuine misses fell from Snowflake's **87 → 44** because the terminated postcodes
+resolve historic sales Code-Point Open never carried. **With ONSPD May 2026 the coverage should
+reach ~99.97% — better than the documented 99.95%.** Gate stays measured-but-not-signed-off.
+
+### 📄 32/32 London PASSED, including its documented exception
+33 London neighbourhoods, 32 with an ONS area code; the unresolved one is **City of London** —
+exactly what `etl/cleaning_layer/cleaning_layer.py:179` documents. Bristol 34 broadcast,
+GM 32 broadcast + 9 exact, total 108.
+
+### 🔴 Three more traps found in Phase C
+1. **ONSPD ships a `lat = 99.999999` "no grid reference" sentinel — 24,012 rows.** Code-Point Open
+   only ever shipped geocoded postcodes, so the original had nothing to guard. Unguarded, those
+   postcodes get an **impossible latitude** where `st_within` silently never matches — they would
+   masquerade as ordinary outside-the-polygon misses rather than missing data. `GEOM` is NULL for
+   them and `IS_GEOCODED` records it, which is what let the 342 above be split three ways.
+2. **Column DEFAULTs are INHERITED through CTAS.** File 13 failed with
+   `WRONG_COLUMN_DEFAULTS_FOR_DELTA_FEATURE_NOT_ENABLED` despite declaring no default —
+   `BRONZE.RAW_ONS_PRIVATE_RENT._LOAD_TS` carries one and the CTAS inherited the metadata. Fixed
+   with `TBLPROPERTIES` on the CTAS. Only Silver table affected.
+3. **A latent bug in the ORIGINAL driver.** Snowflake's GeoJSON `rows_in_sql` was
+   `SELECT ARRAY_SIZE(RAW:features)` read at row `[0][0]` — it counted **one city's** features and
+   ignored the other two. Replaced with an explode-and-count (correct and city-count independent).
+   Also: `count_rows_in()` swallows every exception and returns 0, so an unported override would
+   record `ROWS_IN = 0` and make `ROWS_DROPPED` negative without failing the run. Both helpers now
+   **warn** instead of failing silently.
+
+### Decisions recorded
+- **Terminated postcodes KEPT + `IS_TERMINATED` flag** (Sunil, 2026-07-28) — justified by the
+  numbers: genuine misses fell 87 → 44 because of them.
+- **`GEOGRAPHY` column renamed `GEOM`** — in Databricks GEOGRAPHY is a distinct, narrower type, so
+  the old name would actively mislead. **Gold must use `GEOM`.**
+- **Table name `CODE_POINT_CLEANED` kept** despite the source change, so file 12 and Gold keep
+  their references and files stay diffable. ⚠️ `docs/data_pipeline.md:84` still calls it Code-Point
+  and needs updating.
+
+### Created in Phase C
+```
+databricks/cleaning_layer/09_silver_code_point.sql   10_silver_property_group_map.sql
+databricks/cleaning_layer/12_silver_postcode_neighbourhood_map.sql
+databricks/cleaning_layer/13_silver_ons_private_rent.sql
+databricks/cleaning_layer/14_silver_neighbourhood_ons_area_map.sql
+databricks/cleaning_layer/cleaning_layer.py          databricks/run_silver.py
+```
+
+### ▶ RESUME HERE
+**Nothing from Session 6 is committed.** All 16 new files are untracked on
+`role/migration-databricks` (pushed and up to date through Session 5, commit `e907afb`).
+
+⚠️ File 12 was moved from Phase B to Phase C — it reads `CODE_POINT_CLEANED`, which file 09 builds.
+Stated rather than silently reordered.
+
+### Next
+1. **Commit Silver** to `role/migration-databricks`.
+2. **Gold** — 20 Dynamic Tables → a Lakeflow pipeline. Do the **geospatial spike first**:
+   `FCT_LISTING_POI` uses `ST_DWITHIN(...,500)`, and `st_dwithin` measures in SRID units
+   (degrees at 4326), not metres. Use `st_transform(...,27700)`. `MART_AREA_POI` uses
+   `ST_CONTAINS`, which is topological and safe.
+   ⚠️ Gold must also use `GEOM` (not `GEOGRAPHY`) and the `regexp_extract` city rule.
+   ⚠️ **178 orphan listing_ids** (calendar has 102,769 distinct, listings 102,591) will silently
+   shrink any INNER join — decide the join direction deliberately.
+3. Land **ONSPD May 2026** and re-run 09/12 to sign off the coverage gate.
+
+---
+
 ## 2026-07-28 — Session 5: ONSPD landed and loaded — **BRONZE IS COMPLETE (9 of 9)**
 
 **Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)
