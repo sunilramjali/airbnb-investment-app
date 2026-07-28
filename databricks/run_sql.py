@@ -27,10 +27,18 @@ import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
-WAREHOUSE_ID = "bdef2ebe62faebea"   # Serverless Starter Warehouse (2X-Small)
-PROFILE = "airbnb"
-CATALOG = "airbnb_investment"
+# ⚠️ These come from config/databricks_context.py, NOT from local copies.
+# This file used to declare its own WAREHOUSE_ID / PROFILE / CATALOG, which meant
+# pointing the project at a second workspace required editing two files and
+# silently produced a half-migrated state if you edited only one.
+#
+# config/ imports nothing third-party, so this keeps run_sql.py's "no install
+# needed beyond the CLI" property intact.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config.databricks_context import CATALOG, PROFILE, WAREHOUSE_ID  # noqa: E402
+
 SCHEMA = "bronze"
 
 

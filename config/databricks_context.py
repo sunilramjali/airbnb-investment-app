@@ -25,19 +25,42 @@ try:
 except NameError:
     PROJECT_ROOT = Path.cwd()
 
-# project-wide settings
+# ============================================================
+# ENVIRONMENT SETTINGS — one source of truth, all overridable
+# ------------------------------------------------------------
+# Every value below can be overridden with an environment variable, so a second
+# workspace, a colleague's account or a CI run needs no code edit:
+#
+#   AIRBNB_CATALOG        AIRBNB_PROFILE        AIRBNB_WAREHOUSE_ID
+#   AIRBNB_S3_BUCKET      AIRBNB_PROJECT_ROOT   (the last is read by run_layer)
+#
+# The defaults are this project's actual values, so nothing needs setting to run
+# it as-is. ⚠️ Do NOT re-declare any of these anywhere else — databricks/run_sql.py
+# previously kept its own copies of CATALOG and PROFILE, which is exactly the
+# drift this block exists to prevent.
+# ============================================================
+import os  # noqa: E402 — kept next to the settings it serves
+
 WORKSPACE_NAME = "airbnb-investment-app"
-CATALOG = "airbnb_investment"   # every layer lives in this Unity Catalog catalog
+
+# Every layer lives in this Unity Catalog catalog.
+CATALOG = os.environ.get("AIRBNB_CATALOG", "airbnb_investment")
 
 # CLI profile used for the Databricks Connect fallback and for any CLI calls.
-PROFILE = "airbnb"
+PROFILE = os.environ.get("AIRBNB_PROFILE", "airbnb")
+
+# Serverless SQL warehouse that databricks/run_sql.py drives through the
+# Statement Execution API. Workspace-specific: a different account WILL have a
+# different id, so this is the first thing to override.
+WAREHOUSE_ID = os.environ.get("AIRBNB_WAREHOUSE_ID", "bdef2ebe62faebea")
 
 # Raw S3 landing zone, exposed through Unity Catalog external locations.
 # Snowflake reached these through @BRONZE.RAW_STAGE (one STORAGE INTEGRATION, three
 # stages). Unity Catalog needs one EXTERNAL LOCATION per prefix instead — a location
 # at the shared raw/ parent fails credential validation even though the IAM role
 # grants raw/* (see setup/databricks/README.md for the evidence).
-S3_BUCKET = "s3://airbnb-investment-app-988261629236-eu-west-2-an"
+S3_BUCKET = os.environ.get(
+    "AIRBNB_S3_BUCKET", "s3://airbnb-investment-app-988261629236-eu-west-2-an")
 RAW_ROOT = f"{S3_BUCKET}/raw"
 
 RAW_PATHS = {
