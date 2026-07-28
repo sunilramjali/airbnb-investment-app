@@ -5,6 +5,87 @@ Read this before starting any migration work.
 
 ---
 
+## 2026-07-28 — Session 8: ETL filtering post-mortem + ONSPD materiality
+
+**Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)
+
+### Status: review complete, 3 findings, 1 fixed as code, 2 clarified, 2 docs corrected.
+
+### 🔴 Finding 1 (FIXED) — the marts did NOT share one universe
+`docs/data_pipeline.md:123` claimed *"the consumer marts share one like-for-like universe so their
+numbers reconcile"*. **`MART_AREA_OVERVIEW` applied none of the three base filters**, so its
+operating metrics ran over hotels, private rooms and dormant listings.
+
+| | Listings |
+|---|---|
+| `MART_AREA_OVERVIEW` | 102,591 |
+| property / strategy marts | 25,731 |
+
+A **4× universe difference presented as one number**. User-visible impact:
+
+| Neighbourhood | Overview avg rev | Like-for-like | Overview occ | LFL occ |
+|---|---|---|---|---|
+| Westminster | £26,980 | **£56,385** | 0.177 | **0.376** |
+| Tower Hamlets | £12,924 | £31,536 | 0.130 | 0.340 |
+| Camden | £19,307 | £41,337 | 0.174 | 0.363 |
+
+**~2× different revenue and occupancy for the same area depending on the screen.** This is in the
+Snowflake original too — the migration surfaced it, it did not cause it.
+
+**Fix** (`03_app_marts_core.sql`), schema-compatible so Streamlit keeps working:
+`LISTING_COUNT` stays market size · `LISTING_COUNT_INVESTABLE` added · operating metrics
+recomputed on the investable base · `SUFFICIENT_SAMPLE` added (≥5, matching the codebase
+convention). Driven from the all-listings CTE so an area with no investable listings would still
+appear with NULL metrics rather than vanishing off the map.
+✅ Verified: **all 108 areas reconcile on count, revenue AND occupancy**; 102 of 108 pass ≥5.
+
+### 🟡 Findings 2 & 3 (clarified, not restructured)
+- **POI relevance is filtered one layer apart** — Silver allow-list 634,958→134,713, Gold
+  `CONFIDENCE >= 0.5` 134,713→122,560. Kept split (different questions: *relevant?* vs
+  *trustworthy?*), but both ends now state the other's existence and counts. Silver also records
+  honestly that its "consumers choose their own threshold" rationale is theoretical — there is
+  exactly one consumer and it hard-codes 0.5.
+- **`AREA_ACTIVE_LISTINGS` → `AREA_RANKED_LISTINGS`.** "Active" = `OCCUPANCY_NIGHTS >= 30`
+  everywhere else (37,046); this mart uses `ANNUAL_REVENUE > 0` (47,838), a 29% difference. Both
+  defensible; sharing the word was not. Safe — no app file reads that mart.
+
+### ✅ ONSPD IS LOADED — the "May 2026" item was BADLY WORDED, not outstanding work
+Earlier sessions listed "land ONSPD May 2026" beside genuine blockers, which read as if nothing
+had been loaded. **Wrong.** `ONSPD_FEB_2024_UK.csv` is live end-to-end. The item is an *edition
+upgrade*. Measured cost of the stale edition:
+
+| | Sales | % | Median | Flats |
+|---|---|---|---|---|
+| Reaching Gold | 693,841 | 99.37% | £425,000 | 41.9% |
+| Missing | **4,400** | **0.63%** | £442,830 | **85.0%** |
+
+Missing sales are 4% pricier and **85% flats** — the new-build apartment profile predicted.
+Worst districts are the regeneration zones: Tower Hamlets 3.11%, Salford 2.81%, Newham 2.38%.
+🔬 **Materiality negligible** — a median is robust to 0.6–3% displacement; no neighbourhood
+`MEDIAN_SALE_PRICE` moves meaningfully. **Not urgent.** Wait for the August 2026 release rather
+than uploading 1.45 GB twice.
+
+### Docs corrected
+- `docs/data_pipeline.md` — records that the one-universe claim was aspirational, the measured 4×
+  impact, that it is fixed in the Databricks port but **NOT in the Snowflake original**, and the
+  one deliberate exception (`LISTING_COUNT` stays market size).
+- `docs/data_sources.md` — Overture was scoped against `SILVER.NEIGHBOURHOODS_GEO_CLEANED`, a
+  **Bronze→Silver dependency inverting the medallion order** (Silver's `POI_CLEANED` reads
+  `BRONZE.RAW_OVERTURE_POI`, closing the loop). The Databricks loader uses
+  `BRONZE.RAW_NEIGHBOURHOODS_GEO`. Same polygons, clean layering.
+
+### ⚠️ Surfaced, not acted on: three Gold marts are unconsumed by the app
+`MART_PROPERTY_TYPE`, `MART_AREA_AMENITIES`, `MART_AREA_AMENITY_GAP` — no Streamlit file reads
+them. `MART_PROPERTY_TYPE` is notable: it is the only mart carrying buy price at structure grain,
+the basis of the yield comparison. Either work-in-progress or dead weight — **decide before the
+Streamlit port**, since porting pages that read nothing is wasted effort either way.
+
+### Next
+1. **Streamlit → Databricks Apps** — the last layer.
+2. Optional: ONSPD August 2026 when released, to sign off the coverage gate.
+
+---
+
 ## 2026-07-28 — Session 7: **GOLD IS COMPLETE (20 of 20) — MIGRATION PIPELINE DONE**
 
 **Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)

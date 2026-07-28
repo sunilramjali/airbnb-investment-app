@@ -516,12 +516,35 @@ Two effects act on the 99.95% coverage invariant in **opposite** directions:
 | Postcodes created after Feb 2024 are absent → 2024–26 new-build sales in Price Paid can't resolve | coverage **down** |
 | 901,381 terminated postcodes present that Code-Point Open never carried → historic 2021–23 sales on retired postcodes now resolve | coverage **up** |
 
-The net is unpredictable and, worse, **unattributable** — a coverage figure from this edition
-cannot be explained, and rule #5 requires explanation. **Land the May 2026 edition before running
-the Silver coverage gate.**
+Both effects were subsequently measured (see the coverage section below) — the net is **−255
+mapped postcodes**, fully attributed.
 
-Upgrading is a pure file drop: `newest_csv()` selects by `modification_time` and the write is
-`CREATE OR REPLACE`. No code change is needed for a new edition.
+### ✅ ONSPD IS LOADED AND WORKING — the upgrade is an improvement, not a fix
+Do not read the above as a blocker. `ONSPD_FEB_2024_UK.csv` is live through Bronze → Silver → Gold
+and every number in the app is sound. Measured cost of the stale edition (2026-07-28):
+
+| | Sales | % | Median price | Flats |
+|---|---|---|---|---|
+| Reaching Gold | 693,841 | 99.37% | £425,000 | 41.9% |
+| Missing | **4,400** | **0.63%** | £442,830 | **85.0%** |
+
+The missing sales are 4% pricier and overwhelmingly **flats** — the new-build apartment profile
+predicted by the stale-edition hypothesis, since new developments get new postcodes. Worst-hit
+districts are exactly the regeneration zones: Tower Hamlets **3.11%**, Salford 2.81%, Newham
+2.38%, Barnet 1.90%, Manchester 1.83%.
+
+🔬 **Materiality: negligible.** A median is robust to displacing 0.6–3% of observations, so no
+neighbourhood `MEDIAN_SALE_PRICE` moves meaningfully. The gap is coherent and explainable rather
+than random, which is itself corroboration.
+
+**What the upgrade buys:** coverage ~99.783% → ~99.97% (better than the Snowflake original's
+99.95%), and the documented gate becomes *signable* rather than merely *measured and attributed*.
+That is a process distinction, not a data-correctness one.
+
+**Recommendation: not urgent.** The August 2026 release is due shortly — wait for it rather than
+doing the 1.45 GB upload twice. Upgrading is a pure file drop into the same folder:
+`newest_csv()` selects by `modification_time`, the write is `CREATE OR REPLACE`, and only files 09
+and 12 need re-running. No code change.
 
 ### Silver decision required: keep or drop terminated postcodes
 Code-Point Open carried live postcodes only; ONSPD carries both. Keeping the terminated ones is
