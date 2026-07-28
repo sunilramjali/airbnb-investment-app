@@ -314,6 +314,105 @@ blocker — this is the invariant that replaces "row counts match Snowflake" mos
 **No surviving numbers exist for any of the 20 marts.** No mart row count, no aggregate, nothing.
 Verification here is structural only. **Report Gold as reviewed, not proven** — say those words.
 
+### Phase A ✅ (2026-07-28): 7 dimensions, built in 42.7 s
+
+| Object | Rows | Grain unique? | Check |
+|---|---|---|---|
+| `DIM_LISTING` | 102,591 | ✅ `LISTING_ID` | ties to `LISTINGS_CLEANED` exactly |
+| `DIM_HOST` | 57,081 | ✅ `HOST_ID` | — |
+| `DIM_NEIGHBOURHOOD` | 108 | ✅ | **108/108 CITY populated** |
+| `DIM_PROPERTY_GROUP` | 7 | ✅ | matches the 7 CASE branches |
+| `DIM_POI` | 122,560 | — | equals the `confidence >= 0.5` count exactly |
+| `DIM_CITY_ASSUMPTIONS` | 3 | ✅ | — |
+| `DIM_DATE` | 438 | ✅ | 2026-05-20 → 2027-07-31 |
+
+🔬 **SRID alignment asserted:** `DIM_LISTING.GEO_POINT` and `DIM_POI.LOCATION` are both **4326**,
+one distinct SRID across 102,591 rows. `ST_MAKEPOINT` → `st_setsrid(st_point(...), 4326)`; without
+the explicit `st_setsrid` the point would carry SRID 0 and `FCT_LISTING_POI`'s join would be
+semantically undefined while still appearing to work.
+
+### 🔴 `IS_WEEKEND` would have been WRONG ON EVERY ROW
+Snowflake `DAYOFWEEK` returns **0=Sunday … 6=Saturday**; Databricks returns **1=Sunday … 7=Saturday**.
+Verified: `2026-08-02` (Sun) → 1, `2026-08-01` (Sat) → 7, `2026-08-03` (Mon) → 2.
+
+The original tests `DAYOFWEEK(d) IN (0,6)`. Ported verbatim on Databricks, **0 never occurs and 6
+is Friday** — so `IS_WEEKEND` would be TRUE for Fridays and FALSE for actual weekends, with no
+error, in a column the seasonal marts consume. Corrected to `IN (1,7)` and verified:
+
+```
+Sunday 1 true · Monday 2 false · … · Friday 6 false · Saturday 7 true
+```
+
+### Other Phase A translations (verified, not assumed)
+- ✅ `ILIKE ANY (...)` ports verbatim.
+- `GENERATOR(ROWCOUNT => 1000)` + `SEQ4` → `explode(sequence(start, end, INTERVAL 1 DAY))`. This
+  also removes the magic 1000 and the trailing `WHERE d <= end_d` guard — `sequence()` is bounded
+  by the dates, so the range cannot silently truncate if the calendar grows past 1000 days.
+- `MONTHNAME` / `DAYNAME` do not exist → `date_format(d,'MMMM')` / `date_format(d,'EEEE')`.
+  `QUARTER` / `WEEKOFYEAR` / `YEAR` / `MONTH` / `DAY` port verbatim.
+- ⚠️ Snowflake auto-names `VALUES` columns `column1..N`; Databricks does not, so `column1 AS CITY`
+  fails. Explicit `AS t(...)` aliases used.
+- `SPLIT_PART(_FILENAME,'/',3)` → `regexp_extract` — the same city bug as Silver 12/14.
+
+### Phase B ✅ (2026-07-28): 5 facts, built in 36.9 s
+
+| Object | Rows | Check |
+|---|---|---|
+| `FCT_CALENDAR_DAILY` | 37,510,686 | ties to `CALENDAR_CLEANED` exactly |
+| `FCT_LISTING_SNAPSHOT` | 102,591 | ties to `DIM_LISTING` exactly |
+| `FCT_LISTING_POI` | **102,591** | 🔬 LEFT JOIN preserved **every** listing |
+| `FCT_AREA_SALE_PRICE` | 324 | = 108 neighbourhoods × 3 classes, exactly |
+| `FCT_AREA_RENT` | 749 | = 107 neighbourhoods × 7 categories, exactly |
+
+🌍 **`FCT_LISTING_POI` reproduced the spike exactly, through a different code path** (via the
+dimensions rather than straight off Silver): avg **188.5**, max **2,044**, **44** zeros, all
+102,591 listings retained. An independent reproduction, not a re-run.
+
+🔬 **Internal consistency of `FCT_AREA_SALE_PRICE`:** Flat 290,568 + House 403,273 = **693,841** =
+the `All` total exactly. This also confirms the documented claim that the `Other` bucket is always
+empty (100% of code-O sales are PPD category B, removed by `quality_flag='ok'`).
+
+🔬 **Cross-layer reconciliation — the Gold gate — PASSES exactly:**
+
+```
+Silver 'ok' sales                 698,336
+Gold FCT_AREA_SALE_PRICE (All)    693,841
+difference                          4,495
+sales on unmapped postcodes         4,495   ← exact match
+```
+
+Every sale that did not reach Gold is accounted for by the postcode-coverage gap already
+attributed above. Nothing is unexplained.
+
+🔬 `FCT_AREA_RENT` covers **107** neighbourhoods, not 108 — City of London has a NULL
+`ONS_AREA_CODE` by design and is excluded by `WHERE x.ONS_AREA_CODE IS NOT NULL`. Documented
+Snowflake behaviour, not a port regression.
+
+✅ Verified verbatim in Phase B: `MEDIAN`, `ANY_VALUE`, `COUNT(CASE WHEN …)`, `UNION ALL`,
+`COMMENT ON COLUMN`.
+
+⚠️ **The `st_transform` calls sit in CTEs, not inline in the `ON` clause**, so they are evaluated
+once per row rather than per candidate pair. That is the shape that was performance-tested — do
+not "simplify" it back into the join condition.
+
+### 🔴 Why Gold is plain tables, not materialized views
+MVs work on Free Edition — verified: create, **MV-on-MV**, query, `COMMENT ON COLUMN`, drop. They
+were rejected on **cost**, not capability:
+
+| Operation (3-row object) | Time |
+|---|---|
+| `CREATE MATERIALIZED VIEW` | **5 m 39 s** |
+| `CREATE TABLE AS SELECT` | **4.6 s** |
+
+74×, entirely fixed overhead — each MV provisions its own backing Lakeflow pipeline, so a trivial
+object costs the same as a real one. Twenty objects ≈ **110 minutes per build**, paid again on
+every `CREATE OR REPLACE` during development. Phase A's seven objects took **42.7 s** as tables.
+
+What is given up is auto-refresh, which is acceptable: this pipeline is Lambda-fed **quarterly**
+and Bronze/Silver are already batch driver-run. The dependency DAG is carried by the driver's
+`STEPS` ordering, as it always was. Reversible — `TABLE` ↔ `MATERIALIZED VIEW` is a
+find-and-replace.
+
 1. **Cross-layer reconciliation.** Each mart ties back to its source fact: totals and row counts
    agree across the boundary. `MART_AREA_OVERVIEW` ← `FCT_AREA_SALE_PRICE` on
    `STRUCTURE_CLASS = 'All'`; `MART_LISTING_CANDIDATES` ← `FCT_LISTING_SNAPSHOT` ⋈ `DIM_LISTING`.
@@ -335,14 +434,43 @@ Verification here is structural only. **Report Gold as reviewed, not proven** �
 8. **`LT_RENT_SOURCE` covers the fallback chain** — `observed_bedroom` / `observed_structure` /
    `assumed` — and no row is `assumed` where an observed rent exists.
 
-### 🌍 The strongest Gold check available: the geospatial unit trap
-`FCT_LISTING_POI` counts POIs within **500m** of each listing. Snowflake's `ST_DWITHIN` takes
-GEOGRAPHY and measures **metres**; Databricks' measures in **SRID units — degrees for 4326**. A
-naive port computes a 500-*degree* radius and still returns plausible-looking counts.
+### 🌍 The geospatial unit trap — SPIKED 2026-07-28, both risks retired
 
-Verify by reprojecting to EPSG:27700 (British National Grid) and checking a known distance. The
-session-2 London test pair is true ≈730 m: `st_distancesphere` gave 729.1 m,
-`st_distance(st_transform(...,27700))` gave 730.9 m. **A POI count alone cannot detect this.**
+`FCT_LISTING_POI` counts POIs within **500m** of each listing. Snowflake's `ST_DWITHIN` takes
+GEOGRAPHY and measures **metres**; Databricks' measures in **SRID units — degrees at 4326**.
+
+**Measured on one Westminster listing:**
+
+| Version | POIs "within 500m" |
+|---|---|
+| `st_dwithin(st_transform(...,27700), 500)` — correct, metres | **831** |
+| `st_dwithin(pt_4326, loc_4326, 500)` — naive port | **122,560** |
+| Total POIs with `confidence >= 0.5` | **122,560** |
+
+🔴 **The naive figure equals the total POI count exactly.** 500 degrees exceeds the Earth's
+circumference (360°), so *every* POI matches *every* listing. This is not a subtly wrong number —
+it is a **12.6 billion-row cross product** (102,591 × 122,560) before the `GROUP BY`. The trap is
+simultaneously a correctness bug and a cost/runtime disaster, which is the only reason it would
+likely be noticed at all.
+
+**Full-scale run, correct version — the performance question is answered:**
+
+| Metric | Value |
+|---|---|
+| Listings covered | 102,591 (all) |
+| Listing–POI pairs | 19,337,214 |
+| Avg POIs within 500m | 188.5 |
+| Max | 2,044 |
+| Listings with zero | 44 |
+| **Wall clock** | **~14 s** on Free Edition serverless |
+
+19.3M pairs versus 12.6 billion — a **650× difference**. The join is cheap when the projection is
+right. `st_dwithin` can use a spatial index in a projected CRS; in degrees it degenerates to a
+cross join.
+
+✅ **Both Gold geospatial risks are now retired**: the unit semantics (Session 2, re-proven here)
+and the scale/performance question (here). `ST_CONTAINS` in `MART_AREA_POI` is topological and
+carries no unit risk. Gold's design does **not** need to change.
 
 ---
 

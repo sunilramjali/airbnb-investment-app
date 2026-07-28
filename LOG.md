@@ -5,6 +5,90 @@ Read this before starting any migration work.
 
 ---
 
+## 2026-07-28 — Session 7: **GOLD IS COMPLETE (20 of 20) — MIGRATION PIPELINE DONE**
+
+**Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)
+
+### Status: all 20 Gold objects built, run and verified. Driver run `586169914666593` SUCCESS.
+Bronze (9) + Silver (14) + Gold (20) all complete. Only the Streamlit app remains.
+
+| Phase | Objects | Build time |
+|---|---|---|
+| A — dimensions | 7 | 42.7 s |
+| B — facts | 5 | 36.9 s |
+| C — marts | 8 | ~4 min |
+
+### 🔴 DYNAMIC TABLES → PLAIN TABLES, NOT MATERIALIZED VIEWS
+MVs work on Free Edition — verified: create, **MV-on-MV**, query, `COMMENT ON COLUMN`, drop.
+Rejected on **cost**, not capability:
+
+| Operation (3-row object) | Time |
+|---|---|
+| `CREATE MATERIALIZED VIEW` | **5 m 39 s** |
+| `CREATE TABLE AS SELECT` | **4.6 s** |
+
+74×, entirely fixed overhead — each MV provisions its own backing Lakeflow pipeline. Twenty
+objects ≈ **110 min per build**, paid again on every `CREATE OR REPLACE` during development.
+Phase A's seven objects took 42.7 s as tables. Auto-refresh is what we give up; acceptable because
+the pipeline is Lambda-fed **quarterly** and Bronze/Silver are already batch driver-run. The DAG is
+carried by the driver's `STEPS` ordering. Reversible via find-and-replace.
+
+### 🔴 Two more silent bugs caught
+1. **`IS_WEEKEND` would have been wrong on EVERY row.** Snowflake `DAYOFWEEK` = 0(Sun)…6(Sat);
+   Databricks = 1(Sun)…7(Sat). The original tests `IN (0,6)` — on Databricks 0 never occurs and
+   **6 is Friday**, so `IS_WEEKEND` would be TRUE for Fridays and FALSE for weekends, silently, in
+   a column the seasonal marts consume. Corrected to `IN (1,7)` and verified.
+2. **`ST_DWITHIN` unit trap, measured.** One Westminster listing: correct (EPSG:27700) = **831**
+   POIs; naive (degrees at 4326) = **122,560** — *exactly* the total POI count, because 500 degrees
+   exceeds the Earth's circumference. Not a subtly wrong number: a **12.6 billion-row cross
+   product** vs 19.3M pairs. Full scale with the fix: 102,591 listings, 19,337,214 pairs, avg 188.5,
+   max 2,044, **~14 s**.
+
+### Verification — structural and semantic (no Snowflake numbers survive for Gold)
+- 🔬 **Cross-layer reconciliation exact:** Silver 'ok' sales 698,336 − Gold `FCT_AREA_SALE_PRICE`
+  693,841 = **4,495** = sales on unmapped postcodes, to the row.
+- 🔬 **LEFT-join preservation:** `MART_LISTING_CANDIDATES` = 102,591, grain unique, no fan-out.
+- 🔬 **Exact grain products:** `FCT_AREA_SALE_PRICE` 324 = 108×3 (Flat 290,568 + House 403,273 =
+  All 693,841, confirming the documented "Other is always empty"); `FCT_AREA_RENT` 749 = 107×7;
+  `MART_AREA_SEASONAL` 1,296 = 108×12.
+- 🌍 **`ST_AREA` fix validated:** 108 borough areas sum to **2,961 km²** vs a real ~2,958.
+- 🌍 **SEMANTIC check — London's 90-night cap self-documents**, exactly as the mart header claims:
+
+| City | Cap | Avg ST−LT uplift | ST wins |
+|---|---|---|---|
+| London | **90** | **−£8,039** | 12 / 252 |
+| Greater Manchester | 365 | +£3,616 | 139 / 224 |
+| Bristol | 365 | +£241 | 75 / 184 |
+
+### Other Databricks behaviours verified (not assumed)
+- ✅ `st_contains` **raises `ST_DIFFERENT_SRID_VALUES`** on a mismatch rather than returning a
+  quietly meaningless answer — the SRID discipline is enforced, not merely advisable.
+- ✅ Verbatim: `MEDIAN` (matches Snowflake's interpolation), `ANY_VALUE`, `ILIKE ANY`, `NTILE`,
+  `EXISTS`, `ST_CONTAINS`/`ST_X`/`ST_Y`, `COMMENT ON COLUMN` (on tables **and** MVs), `::STRING`.
+- `GENERATOR(ROWCOUNT=>1000)+SEQ4` → `explode(sequence(...))`, which also removes the magic 1000
+  and the `WHERE d <= end_d` guard — the range can no longer silently truncate.
+- `MONTHNAME`/`DAYNAME` do not exist → `date_format(d,'MMMM'/'EEEE')`.
+- Snowflake auto-names `VALUES` columns `column1..N`; Databricks does not → explicit `AS t(...)`.
+
+### ⚠️ Gold is REVIEWED, NOT PROVEN
+No surviving Snowflake numbers exist for any of the 20 objects. Everything above is structural or
+semantic. Do not describe Gold as parity-verified.
+
+### Created this session
+```
+databricks/aggregation_layer/01_dimensions.sql        02_facts.sql
+databricks/aggregation_layer/03_app_marts_core.sql    04_app_marts_property.sql
+databricks/aggregation_layer/05_app_marts_strategy.sql 06_app_marts_amenities.sql
+databricks/aggregation_layer/aggregation_layer.py     databricks/run_gold.py
+```
+
+### Next
+1. **ETL pipeline post-mortem** — filtering consistency review (see Session 8).
+2. **Streamlit → Databricks Apps** — the last layer.
+3. Land **ONSPD May 2026** to sign off the coverage gate.
+
+---
+
 ## 2026-07-28 — Session 6: **SILVER IS COMPLETE (14 of 14) + driver**
 
 **Agent:** Snowflake to Databricks Migrator (planned and executed in Opus 5)
