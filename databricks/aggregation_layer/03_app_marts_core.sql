@@ -89,13 +89,60 @@ LEFT JOIN AIRBNB_INVESTMENT.GOLD.FCT_AREA_SALE_PRICE c
 -- ============================================================
 -- MART_AREA_OVERVIEW — grain: one row per NEIGHBOURHOOD.
 -- ============================================================
+-- 🔴 DELIBERATE DIVERGENCE FROM THE SNOWFLAKE ORIGINAL — a business-logic fix,
+--    not a port. Reviewed and approved by Sunil, 2026-07-28.
+--
+-- THE BUG: docs/data_pipeline.md:123 states "the consumer marts share one
+-- like-for-like universe so their numbers reconcile with each other", and lists
+-- the base as STRUCTURE_CLASS IN ('Flat','House') AND ROOM_TYPE =
+-- 'Entire home/apt' AND IS_ACTIVE. MART_AREA_OVERVIEW applied NONE of them, so
+-- its operating metrics were computed over hotels, private rooms and dormant
+-- listings while every property/strategy mart used the investable base.
+--
+-- Measured before the fix — same area, two screens, ~2x apart:
+--
+--     neighbourhood     overview avg rev   like-for-like avg rev   occ (ovw/lfl)
+--     Westminster            £26,980              £56,385          0.177 / 0.376
+--     Tower Hamlets          £12,924              £31,536          0.130 / 0.340
+--     Camden                 £19,307              £41,337          0.174 / 0.363
+--
+-- Totals: 102,591 listings behind the overview vs 25,731 behind the property
+-- marts — a 4x universe difference presented as one number.
+--
+-- THE FIX, chosen to keep the Streamlit schema intact
+-- (Streamlit/airbnb-app/pages/1_area_overview.py reads these columns by name):
+--   * LISTING_COUNT stays ALL listings — "how big is this area's Airbnb market?"
+--     is a legitimate question and the column is consumed as market size.
+--   * LISTING_COUNT_INVESTABLE is NEW: the like-for-like base.
+--   * The OPERATING METRICS (ADR, occupancy, revenue, bedrooms, rating) are now
+--     computed on the INVESTABLE base, so they reconcile with MART_PROPERTY_TYPE,
+--     MART_BEDROOMS and MART_ST_VS_LT.
+--   * SUFFICIENT_SAMPLE is NEW, matching the >=5 convention already used by the
+--     property and strategy marts. All 108 areas have >=1 investable listing
+--     (smallest cell = 2), so no metric goes NULL, but thin cells are flagged.
+--
+-- ⚠️ The values of AVG_ADR / MEDIAN_ADR / AVG_OCCUPANCY_RATE / AVG_ANNUAL_REVENUE
+--    / MEDIAN_ANNUAL_REVENUE / AVG_BEDROOMS / AVG_RATING CHANGE with this fix.
+--    The column names do not. That is intentional — they were wrong before — but
+--    it must not be discovered by surprise, hence this block.
+-- ============================================================
 CREATE OR REPLACE TABLE AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW
-    COMMENT 'App-ready per-neighbourhood summary: CITY, listing counts, revenue/occupancy aggregates, median sale price, in-area POI counts, and boundary geometry for mapping.'
+    COMMENT 'App-ready per-neighbourhood summary: CITY, market size (LISTING_COUNT = all listings), investable base (LISTING_COUNT_INVESTABLE = active entire-home Flat/House), operating metrics computed on the INVESTABLE base so they reconcile with the property and strategy marts, median sale price, in-area POI counts, and boundary geometry for mapping.'
 AS
-WITH listing_agg AS (
+WITH area_all AS (
+    -- Market size: every listing in the area, unfiltered.
     SELECT
         NEIGHBOURHOOD,
-        COUNT(*)                       AS LISTING_COUNT,
+        COUNT(*)                       AS LISTING_COUNT
+    FROM AIRBNB_INVESTMENT.GOLD.MART_LISTING_CANDIDATES
+    GROUP BY NEIGHBOURHOOD
+),
+listing_agg AS (
+    -- Operating economics: the like-for-like investable base ONLY, matching
+    -- docs/data_pipeline.md:126-130 and every downstream property/strategy mart.
+    SELECT
+        NEIGHBOURHOOD,
+        COUNT(*)                       AS LISTING_COUNT_INVESTABLE,
         ROUND(AVG(ADR), 2)             AS AVG_ADR,
         MEDIAN(ADR)                    AS MEDIAN_ADR,
         ROUND(AVG(OCCUPANCY_RATE), 4)  AS AVG_OCCUPANCY_RATE,
@@ -104,6 +151,9 @@ WITH listing_agg AS (
         ROUND(AVG(BEDROOMS), 2)        AS AVG_BEDROOMS,
         ROUND(AVG(REVIEW_SCORES_RATING), 2) AS AVG_RATING
     FROM AIRBNB_INVESTMENT.GOLD.MART_LISTING_CANDIDATES
+    WHERE STRUCTURE_CLASS IN ('Flat', 'House')   -- purchasable dwellings only
+      AND ROOM_TYPE = 'Entire home/apt'          -- whole property, like-for-like
+      AND IS_ACTIVE                              -- actively let
     GROUP BY NEIGHBOURHOOD
 ),
 area_poi AS (
@@ -119,9 +169,10 @@ area_poi AS (
     GROUP BY n.NEIGHBOURHOOD
 )
 SELECT
-    la.NEIGHBOURHOOD,
+    aa.NEIGHBOURHOOD,
     n.CITY,
-    la.LISTING_COUNT,
+    aa.LISTING_COUNT,                    -- market size: ALL listings in the area
+    la.LISTING_COUNT_INVESTABLE,         -- like-for-like base the metrics below use
     la.AVG_ADR,
     la.MEDIAN_ADR,
     la.AVG_OCCUPANCY_RATE,
@@ -135,15 +186,21 @@ SELECT
     COALESCE(ap.DINING_COUNT, 0)    AS DINING_COUNT,
     ROUND(COALESCE(ap.POI_COUNT, 0) / NULLIF(n.AREA_SQKM, 0), 2) AS POI_DENSITY_SQKM,
     n.AREA_SQKM,
-    n.BOUNDARY
-FROM listing_agg la
+    n.BOUNDARY,
+    (COALESCE(la.LISTING_COUNT_INVESTABLE, 0) >= 5) AS SUFFICIENT_SAMPLE
+-- Driven from area_all so an area with no investable listings would still appear
+-- (with NULL metrics) rather than vanishing from the map. Currently all 108 have
+-- at least one, but the map must not lose a borough if that ever changes.
+FROM area_all aa
+LEFT JOIN listing_agg la
+    ON aa.NEIGHBOURHOOD = la.NEIGHBOURHOOD
 LEFT JOIN AIRBNB_INVESTMENT.GOLD.DIM_NEIGHBOURHOOD n
-    ON la.NEIGHBOURHOOD = n.NEIGHBOURHOOD
+    ON aa.NEIGHBOURHOOD = n.NEIGHBOURHOOD
 LEFT JOIN AIRBNB_INVESTMENT.GOLD.FCT_AREA_SALE_PRICE c
-    ON c.NEIGHBOURHOOD   = la.NEIGHBOURHOOD
+    ON c.NEIGHBOURHOOD   = aa.NEIGHBOURHOOD
    AND c.STRUCTURE_CLASS = 'All'
 LEFT JOIN area_poi ap
-    ON la.NEIGHBOURHOOD = ap.NEIGHBOURHOOD;
+    ON aa.NEIGHBOURHOOD = ap.NEIGHBOURHOOD;
 
 -- ============================================================
 -- MART_AREA_POI — grain: one row per POI inside a neighbourhood.
@@ -241,14 +298,16 @@ COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_LISTING_CANDIDATES.PICTURE_URL IS 
 -- ---- MART_AREA_OVERVIEW ----
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.NEIGHBOURHOOD IS 'Area name; row grain.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.CITY IS 'City the neighbourhood belongs to (London / Greater Manchester / Bristol).';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.LISTING_COUNT IS 'Number of listings in the area.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_ADR IS 'Mean nightly rate across the area listings.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.MEDIAN_ADR IS 'Median nightly rate.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_OCCUPANCY_RATE IS 'Mean estimated occupancy (0..1).';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_ANNUAL_REVENUE IS 'Mean estimated annual revenue.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.MEDIAN_ANNUAL_REVENUE IS 'Median estimated annual revenue.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_BEDROOMS IS 'Mean bedrooms per listing.';
-COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_RATING IS 'Mean guest review rating.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.LISTING_COUNT IS 'MARKET SIZE: all listings in the area, unfiltered (includes hotels, private rooms and dormant listings). NOT the base for the metrics below — use LISTING_COUNT_INVESTABLE for that.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.LISTING_COUNT_INVESTABLE IS 'INVESTABLE BASE: active entire-home Flat/House listings — the like-for-like universe shared with MART_PROPERTY_TYPE, MART_BEDROOMS and MART_ST_VS_LT. Every operating metric in this mart is computed on this base.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_ADR IS 'Mean nightly rate across the INVESTABLE base (active entire-home Flat/House).';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.MEDIAN_ADR IS 'Median nightly rate across the INVESTABLE base.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_OCCUPANCY_RATE IS 'Mean estimated occupancy (0..1) across the INVESTABLE base. Dormant listings are excluded, so this is not diluted toward zero.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_ANNUAL_REVENUE IS 'Mean estimated annual revenue across the INVESTABLE base. Reconciles with MART_PROPERTY_TYPE.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.MEDIAN_ANNUAL_REVENUE IS 'Median estimated annual revenue across the INVESTABLE base. Reconciles with MART_PROPERTY_TYPE.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_BEDROOMS IS 'Mean bedrooms per listing across the INVESTABLE base.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.AVG_RATING IS 'Mean guest review rating across the INVESTABLE base.';
+COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.SUFFICIENT_SAMPLE IS 'TRUE if LISTING_COUNT_INVESTABLE >= 5 (area large enough to trust the operating metrics). Same >=5 convention as the property and strategy marts.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.MEDIAN_SALE_PRICE IS 'Land Registry median sale price for the area (purchase benchmark).';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.POI_COUNT IS 'POIs inside the neighbourhood boundary.';
 COMMENT ON COLUMN AIRBNB_INVESTMENT.GOLD.MART_AREA_OVERVIEW.TRANSPORT_COUNT IS 'Transport POIs inside the boundary.';
