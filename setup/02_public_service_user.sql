@@ -36,14 +36,25 @@ GRANT SELECT ON FUTURE TABLES         IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROL
 GRANT SELECT ON FUTURE VIEWS          IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROLE AIRBNB_APP_PUBLIC_ROLE;
 GRANT SELECT ON FUTURE DYNAMIC TABLES IN SCHEMA AIRBNB_INVESTMENT_DB.GOLD TO ROLE AIRBNB_APP_PUBLIC_ROLE;
 
--- 3b. AI cache write exception -------------------------------------------------
--- The role is otherwise read-only, but the ST vs LT AI comparison persists its
--- generated narratives to this table so future sessions reuse them instead of
--- re-calling Gemini. That requires INSERT on this one table.
-GRANT INSERT ON TABLE AIRBNB_INVESTMENT_DB.GOLD.ST_VS_LT_COMPARISON_CACHE TO ROLE AIRBNB_APP_PUBLIC_ROLE;
-
--- 4. Bind role to the service user --------------------------------------------
+-- 3b. Bind role to the service user -------------------------------------------
+-- This MUST come before any grant that depends on an object created by a
+-- different script. An INSERT grant on ST_VS_LT_COMPARISON_CACHE used to sit
+-- here, but that table is created by setup/st_vs_lt_comparison_cache.sql — so
+-- running this script first made the grant fail, which aborted the script
+-- before the role was ever bound to the user. The app then failed to connect
+-- with "Role 'AIRBNB_APP_PUBLIC_ROLE' ... is not granted to this user".
 GRANT ROLE AIRBNB_APP_PUBLIC_ROLE TO USER AIRBNB_APP_SVC;
+
+-- 4. AI cache write exception --------------------------------------------------
+-- The role is otherwise read-only, but the AI pages persist their generated
+-- narratives so future sessions reuse them instead of re-calling Gemini. That
+-- requires SELECT + INSERT on the cache tables. Those grants live in each cache
+-- table's own DDL file (CREATE OR REPLACE resets grants, so they have to be
+-- re-granted there regardless). Run these after this script:
+--   setup/st_vs_lt_comparison_cache.sql
+--   setup/property_type_cache.sql
+--   setup/property_comparison_cache.sql
+--   setup/listing_comparison_cache.sql
 
 -- 5. Verify -------------------------------------------------------------------
 SHOW GRANTS TO ROLE AIRBNB_APP_PUBLIC_ROLE;
