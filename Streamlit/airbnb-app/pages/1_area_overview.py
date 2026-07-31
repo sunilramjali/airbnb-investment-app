@@ -5,18 +5,17 @@ from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
 from styles import apply_theme
 from nav import render_breadcrumb
+import persist
 
-st.set_page_config(layout='wide')
+st.set_page_config(page_title="Area Overview", page_icon="🏡", layout='wide')
 #st.write("Checking 1 2 3")
 
 apply_theme(bottom_panel=True)
 
 render_breadcrumb("area_overview")
 
-st.set_page_config(layout = 'wide')
-
 if 'starred_neighbourhoods' not in st.session_state:
-    st.session_state['starred_neighbourhoods'] = []
+    st.session_state['starred_neighbourhoods'] = persist.get_starred()
 
 if 'selected_neighbourhood' not in st.session_state:
     st.session_state['selected_neighbourhood'] = None
@@ -27,7 +26,7 @@ session = get_session()
 
 #TITLE ---
 st.title('Area Overview')
-st.subheader('Select your desired city and find the best neighbourhoods based on your selected persona. Star your personal favourite 3 neighbourhoods.')
+st.subheader('Find the best neighbourhoods based on your chosen persona and cities. Star your personal favourite 3 neighbourhoods.')
 
 #SQL QUERY ---
 @st.cache_data(ttl=300)
@@ -79,7 +78,8 @@ def load_summary(_session):
     """
     ).to_pandas()
 
-persona = st.session_state.get('persona', None)
+persona = st.session_state.get('persona', None) or persist.get_persona()
+st.session_state['persona'] = persona
 
 if persona is None:
     st.warning('No persona selected. Please go back to the homepage and select a persona.')
@@ -89,18 +89,34 @@ with st.spinner('Loading neighbourhoods...'):
     neighbourhoods = load_neighbourhoods(session, persona)
     ai_summary = load_summary(session)
 
-#City filter
-city_col, empty_col = st.columns([1, 3])
-with city_col:
-    city = st.selectbox(
-        'City',
-        ('All', 'London', 'Bristol', 'Greater Manchester')
+# City selection now lives on the Get Started page; read what was chosen there.
+CITIES = ["London", "Manchester", "Bristol"]
+CITY_VALUES = {"London": "London", "Manchester": "Greater Manchester", "Bristol": "Bristol"}
+
+selected_display_cities = st.session_state.get('selected_cities') or persist.get_cities(CITIES)
+st.session_state['selected_cities'] = selected_display_cities
+
+cities = [CITY_VALUES[name] for name in selected_display_cities]
+
+if "London" in cities:
+    st.warning(
+        "LONDON 90-DAY RULE: Short-term lets in London are generally limited to 90 nights per calendar year unless planning permission is granted."
     )
 
-if city == 'All':
-    filtered_neighbourhoods = neighbourhoods
-else:
-    filtered_neighbourhoods = neighbourhoods[neighbourhoods['CITY'] == city]
+filtered_neighbourhoods = neighbourhoods[neighbourhoods['CITY'].isin(cities)]
+
+# Budget is set on the Get Started page; read it here.
+max_budget = st.session_state.get('max_budget') or persist.get_budget(1_000_000)
+st.session_state['max_budget'] = max_budget
+
+filtered_neighbourhoods = filtered_neighbourhoods[filtered_neighbourhoods['MEDIAN_SALE_PRICE'] <= max_budget]
+
+if filtered_neighbourhoods.empty:
+    st.warning(
+        f"No neighbourhoods match your budget of £{max_budget:,.0f} in the selected cities. "
+        "Go back to Get Started and raise your maximum budget."
+    )
+    st.stop()
 
 st.session_state['neighbourhoods'] = filtered_neighbourhoods['NEIGHBOURHOOD'].tolist()
 
@@ -135,6 +151,7 @@ def find_best_neighbourhoods(index):
 
     st.metric('Investment rank', f"{row['INVESTMENT_RANK']}")
     st.metric('Investment score', f"{row['INVESTMENT_SCORE']:,.1f}")
+    st.metric('Median house price', f"£{row['MEDIAN_SALE_PRICE']:,.0f}")
     st.metric('Median annual revenue', f"£{row['MEDIAN_ANNUAL_REVENUE']:,.0f}")
     st.metric('Average rating', f"{row['AVERAGE_RATING']:,.2f}")
     st.metric('POI density', f"{row['POI_DENSITY']:,.2f} per sqkm")
@@ -174,7 +191,7 @@ neighbourhoods_center_lon = filtered_neighbourhoods['LON'].mean()
 
 #CREATES THE JSON EACH BOUNDARY HOLDS
 @st.cache_data(ttl=300)
-def build_map_data(city, _filtered_df):
+def build_map_data(cities, _filtered_df):
     features = []
 
     top_neighbourhoods = _filtered_df.head(3)['NEIGHBOURHOOD'].tolist()
@@ -194,6 +211,7 @@ def build_map_data(city, _filtered_df):
                 "average_occupancy_rate": round(row["AVERAGE_OCCUPANCY_RATE"], 2),
                 "average_annual_revenue": round(row["AVERAGE_ANNUAL_REVENUE"]),
                 "median_annual_revenue": round(row["MEDIAN_ANNUAL_REVENUE"]),
+                "median_sale_price": round(row["MEDIAN_SALE_PRICE"]),
                 "average_no_bedrooms": round(row["AVERAGE_NO_BEDROOMS"], 2),
                 "average_rating": round(row["AVERAGE_RATING"], 2),
                 "poi_count": row["POI_COUNT"],
@@ -231,7 +249,7 @@ def build_map_data(city, _filtered_df):
     return geojson_data, view_state
 
 #BUILDS MAP WITH BOUNDARIES, CORRECT ZOOM, PROPERTIES AS TOOLTIPS AND SELECTS NEIGBURHOODS INTO STARRED SECTION
-geojson_data, view_state = build_map_data(city, filtered_neighbourhoods)
+geojson_data, view_state = build_map_data(tuple(cities), filtered_neighbourhoods)
 
 st.caption('Tip: move your cursor outside the map before scrolling the page.')
 
@@ -270,6 +288,7 @@ with map_col1:
                         "Investment Rank: {investment_rank}\n"
                         "Investment Score: {investment_score}\n"
                         "Median Annual Revenue: £{median_annual_revenue}\n"
+                        "Median House Price: £{median_sale_price}\n"
                         "Average Rating: {average_rating}\n"
                         "POI Density: {poi_density}\n"
                         "Area: {area} sqkm"
@@ -297,6 +316,7 @@ with map_col1:
         if selected_star not in st.session_state['starred_neighbourhoods']:
             if len(st.session_state['starred_neighbourhoods']) < 3:
                 st.session_state['starred_neighbourhoods'].append(selected_star)
+                persist.set_starred(st.session_state['starred_neighbourhoods'])
                 st.rerun()
 
         selected_properties = selected_objects[0]["properties"]
@@ -315,6 +335,7 @@ with map_col1:
                 st.metric("Occupancy rate", selected_properties["average_occupancy_rate"])
                 st.metric("Average yearly revenue", f"£{selected_properties['average_annual_revenue']:,.0f}")
                 st.metric("Median yearly revenue", f"£{selected_properties['median_annual_revenue']:,.0f}")
+                st.metric("Median house price", f"£{selected_properties['median_sale_price']:,.0f}")
 
             with dcol3:
                 st.metric("Average bedrooms", selected_properties["average_no_bedrooms"])
@@ -339,6 +360,14 @@ with map_col2:
 
     if starred_count < 3:
         st.info('Select 3 neighbourhoods to continue.')
+        if st.button('✨ Auto-select top 3', use_container_width=True):
+            top_three = filtered_neighbourhoods.head(3)
+            st.session_state['starred_neighbourhoods'] = [
+                {'neighbourhood': row['NEIGHBOURHOOD'], 'city': row['CITY']}
+                for _, row in top_three.iterrows()
+            ]
+            persist.set_starred(st.session_state['starred_neighbourhoods'])
+            st.rerun()
     elif starred_count == 3:
         st.success('Ready to continue.')
 
@@ -358,6 +387,7 @@ with map_col2:
             with star_col2:
                 if st.button('🗑️', key='remove_' + city_name + '_' + neighbourhood):
                     st.session_state['starred_neighbourhoods'].remove(starred_area)
+                    persist.set_starred(st.session_state['starred_neighbourhoods'])
                     st.rerun()
     
     if len(st.session_state['starred_neighbourhoods']) == 3:
@@ -385,7 +415,7 @@ with st.bottom:
     else:
         neighbourhood = selected_area['neighbourhood']
         
-        st.write('This is your AI summary using persona:', persona)
+        st.write('This is your AI summary using persona:', persona.replace('_', ' '))
         st.header(neighbourhood)
     
         mask = (

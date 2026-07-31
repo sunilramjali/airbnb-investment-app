@@ -11,6 +11,7 @@ from streamlit.components.v1 import html
 from db import get_session
 from styles import apply_theme
 from nav import render_logo
+import persist
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -19,6 +20,8 @@ _SCRIPTS_AI = os.path.abspath(
 if _SCRIPTS_AI not in sys.path:
     sys.path.insert(0, _SCRIPTS_AI)
 import property_types_comparison_helper as ptch
+
+st.set_page_config(page_title="Property Types Comparison", page_icon="🏡", layout='wide')
 
 apply_theme(print_css=True)
 
@@ -605,7 +608,8 @@ with ai_container:
         "across your 3 selected property and bedroom combinations."
     )
 
-    persona = st.session_state.get("persona")
+    persona = st.session_state.get("persona") or persist.get_persona()
+    st.session_state["persona"] = persona
     api_key = st.secrets.get("gemini", {}).get("api_key")
 
     comparison_city = starred_property_types[0]["city"]

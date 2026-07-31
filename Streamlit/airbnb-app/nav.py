@@ -22,22 +22,44 @@ _LOGO_SIZE = 50  # px, square
 # Main linear flow (the logo itself links back to landing, so it isn't repeated
 # here): (key, label, page target)
 FLOW = [
+    ("get_started", "Get Started", "pages/0_Get_Started.py"),
     ("area_overview", "Area Overview", "pages/1_area_overview.py"),
     ("property_types", "Property Types", "pages/2_property_types.py"),
     ("listing_candidates", "Listing Candidates", "pages/3_listing_candidates.py"),
+    ("live_listings", "Live Listings", "pages/5_Live_Listings.py"),
 ]
 
 _DOC_PAGE = "pages/4_Documentation.py"
+_ABOUT_PAGE = "pages/6_About_Us.py"
 
-_CSS = """
+_CSS = f"""
 <style>
+/* Full-bleed navbar background */
+.st-key-app_navbar {{
+    background-color: #F5F5F5;
+    padding: 8px 20px;
+    margin-top: -48px;
+    width: auto;
+    max-width: 100vw !important;
+    position: relative;
+    margin-left: calc(-50vw + 50%);
+    margin-right: calc(-50vw + 50%);
+    overflow: visible !important;
+    box-sizing: border-box;
+}}
+
+.st-key-app_navbar [data-testid="stHorizontalBlock"] {{
+    align-items: center !important;
+    min-height: 66px !important;
+}}
+
 /* Breadcrumb page-links rendered as plain text */
-[data-testid="stPageLink"] {
+[data-testid="stPageLink"] {{
     margin: 0 !important;
     padding: 0 !important;
-}
+}}
 
-[data-testid="stPageLink"] a {
+[data-testid="stPageLink"] a {{
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -45,26 +67,26 @@ _CSS = """
     margin: 0 !important;
     min-height: 0 !important;
     background: transparent !important;
-    color: #6B6B6B !important;
+    color: #333333 !important;
     text-decoration: none !important;
     line-height: 1.2 !important;
     white-space: nowrap !important;
-}
+}}
 
-[data-testid="stPageLink"] a p {
+[data-testid="stPageLink"] a p {{
     font-size: 1.15rem !important;
     font-weight: 500 !important;
     margin: 0 !important;
-}
+}}
 
 [data-testid="stPageLink"] a:hover,
-[data-testid="stPageLink"] a:hover p {
+[data-testid="stPageLink"] a:hover p {{
     color: #F26359 !important;
     text-decoration: none !important;
-}
+}}
 
 /* Current page crumb */
-.breadcrumb-current {
+.breadcrumb-current {{
     display: flex;
     align-items: center;
     justify-content: center;
@@ -75,7 +97,9 @@ _CSS = """
     font-weight: 700;
     line-height: 1.2;
     white-space: nowrap;
-}
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}}
 </style>
 """
 
@@ -158,47 +182,60 @@ def render_breadcrumb(current: str) -> None:
     current_index = keys.index(current)
     trail = FLOW[: current_index + 1]
 
-    # Logo slot, one slot per crumb, a flexible spacer, then the Documentation link.
-    ratios = [0.7] + [1.4 for _ in trail]
-    ratios.append(max(1.0, 8 - sum(ratios)))  # spacer
-    ratios.append(1.4)                         # doc link
+    # Logo, a leading spacer, one slot per crumb, a trailing spacer, then
+    # Change Persona + About Us + Documentation links. Equal leading/trailing
+    # spacers centre the crumb trail between the logo and the persistent links.
+    persistent_ratio = 2.0 + 1.6 + 1.8
+    trail_ratio = 2.2 * len(trail)
+    spacer = max(1.0, (18 - 0.7 - trail_ratio - persistent_ratio) / 2)
+    ratios = [0.7, spacer] + [2.2 for _ in trail] + [spacer, 2.0, 1.6, 1.8]
 
-    cols = st.columns(ratios, vertical_alignment="center")
+    with st.container(key="app_navbar"):
+        cols = st.columns(ratios, vertical_alignment="center")
 
-    with cols[0]:
-        _render_logo_image()
+        with cols[0]:
+            _render_logo_image()
 
-    for i, (key, label, target) in enumerate(trail):
-        with cols[i + 1]:
-            if key == current:
-                st.markdown(
-                    f"<span class='breadcrumb-current'>{label}</span>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.page_link(target, label=label)
+        for i, (key, label, target) in enumerate(trail):
+            with cols[i + 2]:
+                if key == current:
+                    st.markdown(
+                        f"<span class='breadcrumb-current'>{label}</span>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.page_link(target, label=label)
 
-    # Right-aligned Documentation link (last column).
-    with cols[-1]:
-        st.page_link(_DOC_PAGE, label="Documentation")
+        # Right-aligned Change Persona + About Us + Documentation links (last three columns).
+        with cols[-3]:
+            st.page_link("pages/0_Get_Started.py", label="Change Persona")
+        with cols[-2]:
+            st.page_link(_ABOUT_PAGE, label="About Us")
+        with cols[-1]:
+            st.page_link(_DOC_PAGE, label="Documentation")
 
 
 def render_nav_links() -> None:
-    """Full navigation bar: logo + every main-flow page + Documentation link."""
+    """Full navigation bar: logo + every main-flow page + About Us + Documentation link."""
     _logo_css()
     _inject_css()
 
-    ratios = [0.7] + [1.4 for _ in FLOW]
-    ratios.append(max(1.0, 8 - sum(ratios)))  # spacer
-    ratios.append(1.4)                         # doc link
-    cols = st.columns(ratios, vertical_alignment="center")
+    persistent_ratio = 1.6 + 1.8
+    flow_ratio = 2.2 * len(FLOW)
+    spacer = max(1.0, (16 - 0.7 - flow_ratio - persistent_ratio) / 2)
+    ratios = [0.7, spacer] + [2.2 for _ in FLOW] + [spacer, 1.6, 1.8]
 
-    with cols[0]:
-        _render_logo_image()
+    with st.container(key="app_navbar"):
+        cols = st.columns(ratios, vertical_alignment="center")
 
-    for i, (_, label, target) in enumerate(FLOW):
-        with cols[i + 1]:
-            st.page_link(target, label=label)
+        with cols[0]:
+            _render_logo_image()
 
-    with cols[-1]:
-        st.page_link(_DOC_PAGE, label="Documentation")
+        for i, (_, label, target) in enumerate(FLOW):
+            with cols[i + 2]:
+                st.page_link(target, label=label)
+
+        with cols[-2]:
+            st.page_link(_ABOUT_PAGE, label="About Us")
+        with cols[-1]:
+            st.page_link(_DOC_PAGE, label="Documentation")

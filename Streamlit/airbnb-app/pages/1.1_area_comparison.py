@@ -12,6 +12,7 @@ from streamlit.components.v1 import html
 from db import get_session
 from styles import apply_theme
 from nav import render_logo
+import persist
 #import plotly.graph_objects as go
 from snowflake.snowpark.functions import st_x, st_y
 
@@ -22,6 +23,8 @@ _SCRIPTS_AI = os.path.abspath(
 if _SCRIPTS_AI not in sys.path:
     sys.path.insert(0, _SCRIPTS_AI)
 import area_comparison_helper as ach
+
+st.set_page_config(page_title="Area Comparison", page_icon="🏡", layout='wide')
 
 apply_theme(print_css=True)
 
@@ -1007,7 +1010,8 @@ with ai_col:
             "3 starred neighbourhoods, including the seasonal trend."
         )
 
-        persona = st.session_state.get("persona")
+        persona = st.session_state.get("persona") or persist.get_persona()
+        st.session_state["persona"] = persona
         api_key = st.secrets.get("gemini", {}).get("api_key")
 
         comparison_city = starred_neighbourhoods[0]["city"]

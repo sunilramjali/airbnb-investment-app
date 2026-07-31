@@ -9,6 +9,7 @@ import pandas as pd
 from db import get_session
 from styles import apply_theme
 from nav import render_breadcrumb
+import persist
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -17,6 +18,8 @@ _SCRIPTS_AI = os.path.abspath(
 if _SCRIPTS_AI not in sys.path:
     sys.path.insert(0, _SCRIPTS_AI)
 import listing_comparison_helper as lch
+
+st.set_page_config(page_title="Listing Candidates", page_icon="🏡", layout='wide')
 
 apply_theme(bottom_panel=True)
 
@@ -179,7 +182,8 @@ selected_structure_class = st.session_state["selected_listing_structure_class"]
 selected_bedroom_group = st.session_state["selected_listing_bedroom_group"]
 selected_neighbourhood = st.session_state["selected_listing_neighbourhood"]
 selected_city = st.session_state["selected_listing_city"]
-persona = st.session_state.get("persona", None)
+persona = st.session_state.get("persona", None) or persist.get_persona()
+st.session_state["persona"] = persona
 
 if selected_structure_class is not None and selected_bedroom_group is not None:
 
@@ -367,3 +371,7 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                 if data.get("what_to_avoid"):
                                     st.markdown("**What to avoid**")
                                     st.write(data["what_to_avoid"])
+
+st.divider()
+if st.button('Continue to Live Listings', use_container_width=True):
+    st.switch_page('pages/5_Live_Listings.py')

@@ -25,6 +25,7 @@ __pycache__/
 
 # Ignore local session/progress logs (personal notes, not for the repo)
 log/
+*.log
 
 # Ignore hidden file automatically created by macOS Finder
 .DS_Store

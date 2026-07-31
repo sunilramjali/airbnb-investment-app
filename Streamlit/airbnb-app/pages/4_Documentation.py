@@ -8,7 +8,7 @@ apply_theme()
 
 render_nav_links()
 
-st.set_page_config(layout='wide')
+st.set_page_config(page_title="Documentation", page_icon="🏡", layout='wide')
 
 session = get_session()
 

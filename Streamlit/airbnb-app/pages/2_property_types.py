@@ -11,6 +11,7 @@ import altair as alt
 from db import get_session
 from styles import apply_theme
 from nav import render_breadcrumb
+import persist
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -19,7 +20,7 @@ _SCRIPTS_AI = os.path.abspath(
 if _SCRIPTS_AI not in sys.path:
     sys.path.insert(0, _SCRIPTS_AI)
 import property_type_helper as pth
-st.set_page_config(page_title="Property Types", layout="wide")
+st.set_page_config(page_title="Property Types", page_icon="🏡", layout="wide")
 
 apply_theme(bottom_panel=True)
 
@@ -163,7 +164,7 @@ else:
         neighbourhood_name = neighbourhood["neighbourhood"]
         city_name = neighbourhood["city"]
 
-        button_label = f"{neighbourhood_name}\n{city_name}"
+        button_label = f"{neighbourhood_name}\n**{city_name}**"
 
         with cols[i]:
             if st.button(
@@ -177,7 +178,8 @@ else:
 
 selected_neighbourhood = st.session_state["selected_property_neighbourhood"]
 selected_city = st.session_state["selected_property_city"]
-persona = st.session_state.get("persona", None)
+persona = st.session_state.get("persona", None) or persist.get_persona()
+st.session_state["persona"] = persona
 
 if selected_neighbourhood is not None:
 
@@ -217,7 +219,7 @@ if selected_neighbourhood is not None:
 
                 st.markdown(f"## {selected_neighbourhood}")
                 st.caption(f"City: {selected_city}")
-                st.caption(f"Ranking based on persona: {persona}")
+                st.caption(f"Ranking based on persona: {persona.replace('_', ' ')}")
                 
                 st.divider()
 
@@ -539,8 +541,16 @@ with st.bottom:
             )
 
         if narrative_json is not None:
-            narrative_dict = json.loads(narrative_json)
+            try:
+                narrative_dict = json.loads(narrative_json)
+            except (ValueError, TypeError):
+                narrative_dict = None
 
+        if narrative_json is not None and narrative_dict is None:
+            # Not valid JSON (e.g. the dev_disable_ai placeholder) — show as-is.
+            st.write(narrative_json)
+
+        elif narrative_json is not None:
             recommendation_summary = narrative_dict.get(
                 "recommendation_summary",
                 narrative_dict.get(

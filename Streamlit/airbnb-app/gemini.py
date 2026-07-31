@@ -35,11 +35,25 @@ def _resolve_model_name():
         return st.secrets.get("gemini", {}).get("model", DEFAULT_MODEL)
 
 
+def _dev_mode_disabled() -> bool:
+    # Local dev kill switch — set `dev_disable_ai = true` in .streamlit/secrets.toml
+    # (git-ignored) to stop every AI summary/comparison call in the app from
+    # hitting the live Gemini API while developing. Unset elsewhere (Community
+    # Cloud, Snowflake), so this never affects a real deployment.
+    try:
+        return bool(st.secrets.get("dev_disable_ai", False))
+    except Exception:
+        return False
+
+
 def generate(prompt: str, api_key: str = None, max_retries: int = 3) -> str:
     """Generate text from Gemini, retrying on rate limits.
 
     Raises on the final failed attempt; callers decide how to handle it.
     """
+    if _dev_mode_disabled():
+        return "_AI summary disabled in dev mode (dev_disable_ai = true in secrets.toml)._"
+
     genai.configure(api_key=_resolve_key(api_key))
     model = genai.GenerativeModel(_resolve_model_name())
 

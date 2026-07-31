@@ -11,6 +11,12 @@ TEXT_DARK = "#7A2E2A"
 
 BASE_CSS = f"""
 <style>
+/* Hide Streamlit's own built-in header (Deploy button, menu, status widget) —
+   the app has its own custom navbar instead. */
+[data-testid="stHeader"] {{
+    display: none !important;
+}}
+
 /* Main app */
 .stApp {{
     background-color: white !important;
