@@ -7,7 +7,15 @@ CORAL_LIGHT = "#f8d9d3"
 CREAM = "#FFFAF0"
 CREAM_BORDER = "#F4EFEB"
 ALERT_BG = "#FCEDEA"
-TEXT_DARK = "#7A2E2A"
+
+# Extended warm-red palette, layered alongside CORAL for secondary accents.
+SAFETY_ORANGE = "#F37100"
+TANGELO = "#F3500A"
+SINOPIA = "#D92200"
+DARK_RED = "#920004"
+ROSEWOOD = "#5A0006"
+
+TEXT_DARK = DARK_RED
 
 BASE_CSS = f"""
 <style>

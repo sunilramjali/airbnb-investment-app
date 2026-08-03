@@ -2,7 +2,7 @@
 # Co-authored with CoCo
 # Import python packages
 import streamlit as st
-from styles import apply_theme, TEXT_DARK
+from styles import apply_theme, TEXT_DARK, CORAL
 from nav import render_nav_links
 from asset_utils import get_asset_uri
 
@@ -52,7 +52,7 @@ st.markdown(
     .st-key-cta_get_started div.stButton > button {
         height: auto !important;
         padding: 16px 20px !important;
-        background: linear-gradient(135deg, #F26359, #E8442F) !important;
+        background: linear-gradient(135deg, #F26359, #F3500A) !important;
         color: white !important;
         border: none !important;
         border-radius: 50px !important;
@@ -77,7 +77,7 @@ st.markdown(
 with st.container(key="hero"):
     st.title("Airbnb Investment Intelligence")
     st.markdown(
-        "<h3 class='landing-subheading'>Find where your next short-term rental should be</h3>",
+        "<h3 class='landing-subheading'>Find your next property investment</h3>",
         unsafe_allow_html=True,
     )
     st.write(
@@ -219,7 +219,7 @@ with st.container(key="how_it_works"):
                 f"""<div style='
                     display: flex; align-items: center; justify-content: center;
                     width: 32px; height: 32px; border-radius: 50%; margin: 0 auto 8px;
-                    background-color: #F26359; color: white;
+                    background-color: #D92200; color: white;
                     font-size: 16px; font-weight: 700;
                 '>{i}</div>""",
                 unsafe_allow_html=True,
@@ -254,7 +254,7 @@ tech_section_html = f'''
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: {TEXT_DARK};
+    color: {CORAL};
     margin-bottom: 12px;
 }}
 .tech-track {{
@@ -324,7 +324,7 @@ FAQ = [
     ),
 ]
 
-FAQ_BG = "#454545"  # lighter than the footer background below it
+FAQ_BG = CORAL  # matches the footer background's dominant red
 FAQ_TEXT = "#F2F2F2"
 
 st.markdown(
@@ -347,16 +347,16 @@ st.markdown(
     }}
     .st-key-faq_section [data-testid="stExpander"] {{
         background-color: transparent !important;
-        border-color: #4A4A4A !important;
+        border-color: rgba(255,255,255,0.35) !important;
     }}
     .st-key-faq_section [data-testid="stExpander"] summary {{
-        background-color: #3D3D3D !important;
+        background-color: rgba(0,0,0,0.15) !important;
     }}
     .st-key-faq_section [data-testid="stExpander"] summary:hover {{
-        background-color: #4A4A4A !important;
+        background-color: rgba(0,0,0,0.25) !important;
     }}
     .st-key-faq_section [data-testid="stExpander"] details[open] summary {{
-        background-color: #3D3D3D !important;
+        background-color: rgba(0,0,0,0.15) !important;
     }}
     .st-key-faq_section [data-testid="stExpander"] summary p,
     .st-key-faq_section [data-testid="stMarkdownContainer"] p {{
@@ -372,6 +372,67 @@ with st.container(key="faq_section"):
     for question, answer in FAQ:
         with st.expander(question):
             st.write(answer)
+
+# ── Closing CTA banner ─────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    .st-key-dream_banner {
+        background-color: #F8D9D3;
+        padding: 32px 40px;
+        margin-top: 32px;
+        width: auto;
+        max-width: 100vw !important;
+        position: relative;
+        margin-left: calc(-50vw + 50%);
+        margin-right: calc(-50vw + 50%);
+        overflow: visible !important;
+        box-sizing: border-box;
+    }
+    .st-key-dream_banner [data-testid="stHorizontalBlock"] {
+        align-items: center !important;
+    }
+    .dream-banner-heading {
+        font-size: 1.7rem;
+        font-weight: 700;
+        line-height: 1.25;
+        margin: 0;
+    }
+    .st-key-cta_dream div.stButton > button {
+        height: auto !important;
+        padding: 16px 28px !important;
+        background: linear-gradient(135deg, #F26359, #F3500A) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 50px !important;
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+        box-shadow: 0 6px 18px rgba(242, 99, 89, 0.4) !important;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .st-key-cta_dream div.stButton > button p {
+        color: white !important;
+    }
+    .st-key-cta_dream div.stButton > button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 24px rgba(242, 99, 89, 0.55) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container(key="dream_banner"):
+    banner_col1, banner_col2 = st.columns([3, 1], vertical_alignment="center")
+    with banner_col1:
+        st.markdown(
+            "<p class='dream-banner-heading'>Let's find the investment you've been dreaming about</p>",
+            unsafe_allow_html=True,
+        )
+    with banner_col2:
+        with st.container(key="cta_dream"):
+            if st.button("Get Started →", use_container_width=True):
+                st.switch_page("pages/0_Get_Started.py")
 
 # ── Footer constants ──────────────────────────────────────────────────────────
 LINKEDIN_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M22.23 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.46c.98 0 1.77-.77 1.77-1.72V1.72C24 .77 23.21 0 22.23 0zM7.06 20.45H3.56V9h3.5v11.45zM5.31 7.43c-1.12 0-2.03-.92-2.03-2.05 0-1.13.91-2.05 2.03-2.05 1.12 0 2.03.92 2.03 2.05 0 1.13-.91 2.05-2.03 2.05zM20.45 20.45h-3.5v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.13 1.44-2.13 2.94v5.67h-3.5V9h3.36v1.56h.05c.47-.89 1.62-1.85 3.34-1.85 3.57 0 4.23 2.35 4.23 5.41v6.33z"/></svg>'
@@ -400,6 +461,10 @@ github_link = (
 )
 
 FOOTER_TEXT = "#F2F2F2"  # light, for readability on the dark footer background
+FOOTER_BG = "#2E2E2E"
+
+# Skyline image above the footer, from assets/footer_skyline.svg.
+FOOTER_SKYLINE_URI = get_asset_uri("footer_skyline")
 
 footer_html = f'''
 <style>
@@ -412,10 +477,23 @@ footer_html = f'''
 [data-testid="stMainBlockContainer"] {{
     padding-bottom: 0 !important;
 }}
-.app-footer {{
+.footer-skyline {{
+    display: block;
+    width: auto;
+    height: 600px;
+    background-image: url('{FOOTER_SKYLINE_URI}');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-position: center;
+    position: relative;
+    margin-left: calc(-50vw + 50%);
+    margin-right: calc(-50vw + 50%);
     margin-top: -16px;
+    margin-bottom: -210px;
+}}
+.app-footer {{
     padding: 20px;
-    background-color: #2E2E2E;
+    background-color: transparent;
     text-align: center;
     width: auto;
     position: relative;
@@ -446,6 +524,7 @@ footer_html = f'''
     line-height: 1.6;
 }}
 </style>
+<div class="footer-skyline"></div>
 <div class="app-footer">
     <div class="footer-label">Made By</div>
     <div>{team_links}</div>
@@ -459,3 +538,84 @@ footer_html = f'''
 '''
 
 st.markdown(footer_html, unsafe_allow_html=True)
+
+# ── Footer nav columns (sits at the very bottom of the page) ───────────────────
+FOOTER_NAV_EXPLORE = [
+    ("Get Started", "pages/0_Get_Started.py"),
+    ("Area Overview", "pages/1_area_overview.py"),
+    ("Property Types", "pages/2_property_types.py"),
+    ("Listing Candidates", "pages/3_listing_candidates.py"),
+    ("Live Listings", "pages/5_Live_Listings.py"),
+]
+FOOTER_NAV_COMPANY = [
+    ("About Us", "pages/6_About_Us.py"),
+    ("Documentation", "pages/4_Documentation.py"),
+]
+
+st.markdown(
+    """
+    <style>
+    .st-key-footer_nav {
+        background-color: #2E2E2E;
+        padding: 40px 20px 56px;
+        width: auto;
+        max-width: 100vw !important;
+        position: relative;
+        margin-left: calc(-50vw + 50%);
+        margin-right: calc(-50vw + 50%);
+        margin-top: 0;
+        overflow: visible !important;
+        box-sizing: border-box;
+    }
+    .st-key-footer_nav [data-testid="stHorizontalBlock"] {
+        max-width: 900px;
+        margin: 0 auto !important;
+    }
+    .st-key-footer_nav .footer-nav-heading {
+        color: #F2F2F2;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 14px;
+    }
+    .st-key-footer_nav .footer-nav-tagline {
+        color: #B5B5B5;
+        font-size: 0.85rem;
+        max-width: 260px;
+        line-height: 1.5;
+    }
+    .st-key-footer_nav [data-testid="stPageLink"] a {
+        color: #B5B5B5 !important;
+    }
+    .st-key-footer_nav [data-testid="stPageLink"] a p {
+        color: #B5B5B5 !important;
+        font-size: 0.88rem !important;
+        font-weight: 400 !important;
+    }
+    .st-key-footer_nav [data-testid="stPageLink"] a:hover,
+    .st-key-footer_nav [data-testid="stPageLink"] a:hover p {
+        color: #F26359 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container(key="footer_nav"):
+    fn_col1, fn_col2, fn_col3 = st.columns([1.3, 1, 1])
+    with fn_col1:
+        st.markdown('<div class="footer-nav-heading">BnB Invest</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="footer-nav-tagline">Data-driven Airbnb investment analysis '
+            'across London, Bristol, and Greater Manchester.</div>',
+            unsafe_allow_html=True,
+        )
+    with fn_col2:
+        st.markdown('<div class="footer-nav-heading">Explore</div>', unsafe_allow_html=True)
+        for label, target in FOOTER_NAV_EXPLORE:
+            st.page_link(target, label=label)
+    with fn_col3:
+        st.markdown('<div class="footer-nav-heading">Company</div>', unsafe_allow_html=True)
+        for label, target in FOOTER_NAV_COMPANY:
+            st.page_link(target, label=label)
