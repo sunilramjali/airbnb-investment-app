@@ -1,14 +1,14 @@
 import streamlit as st
 from snowflake.snowpark.functions import st_x, st_y
 from db import get_session
-from styles import apply_theme
+from styles import apply_theme, INK
 from nav import render_nav_links
+
+st.set_page_config(page_title="Documentation", page_icon="🏡", layout='wide')
 
 apply_theme()
 
 render_nav_links()
-
-st.set_page_config(page_title="Documentation", page_icon="🏡", layout='wide')
 
 session = get_session()
 
@@ -21,9 +21,9 @@ st.subheader('How the app calculates recommendations and how to interpret the re
 
 def source_card(title, description):
     st.markdown(
-        f"""<div style="background-color: #f4f3ee; border-radius: 10px; padding: 14px; min-height: 105px; margin-bottom: 10px;">
-<div style="font-weight: 600; font-size: 15px; margin-bottom: 5px; color: #000000;">{title}</div>
-<div style="font-size: 13px; line-height: 1.4; color: #4d4d4d;">{description}</div>
+        f"""<div style="background-color: #FFFAF0; border: 1px solid #F4EFEB; border-radius: 10px; padding: 14px; min-height: 105px; margin-bottom: 10px;">
+<div style="font-weight: 600; font-size: 15px; margin-bottom: 5px; color: {INK};">{title}</div>
+<div style="font-size: 13px; line-height: 1.4; color: {INK};">{description}</div>
 </div>""",
         unsafe_allow_html=True
     )
@@ -533,9 +533,9 @@ st.markdown(
     """
     <div style="
         text-align: center;
-        color: #777777;
+        color: #6b6b6b;
         font-size: 12px;
-        border-top: 1px solid #e5e5e5;
+        border-top: 1px solid #F4EFEB;
         margin-top: 35px;
         padding-top: 15px;
     ">

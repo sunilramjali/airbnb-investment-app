@@ -1,6 +1,6 @@
 # About Us page: mission, team, and data sources.
 import streamlit as st
-from styles import apply_theme
+from styles import apply_theme, CORAL
 from nav import render_nav_links
 
 st.set_page_config(page_title="About Us - BnB Invest", page_icon="🏡", layout='wide')
@@ -8,6 +8,16 @@ st.set_page_config(page_title="About Us - BnB Invest", page_icon="🏡", layout=
 apply_theme()
 
 render_nav_links()
+
+st.markdown(
+    f"""
+    <style>
+    .about-link {{ transition: opacity 0.15s ease; }}
+    .about-link:hover {{ opacity: 0.72; text-decoration: underline !important; }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.title('About Us')
 
@@ -56,12 +66,12 @@ for col, (name, url, email) in zip(team_cols, TEAM):
             f"""
             <div style='text-align:center;'>
                 <div style='font-weight:700; margin-bottom:6px;'>{name}</div>
-                <a href="{url}" target="_blank" style="
-                    color:#7A2E2A; text-decoration:none;
+                <a class="about-link" href="{url}" target="_blank" style="
+                    color:{CORAL}; text-decoration:none;
                     display:inline-flex; align-items:center; gap:6px;
                 ">{LINKEDIN_ICON} LinkedIn</a><br/>
-                <a href="mailto:{email}" style="
-                    color:#7A2E2A; text-decoration:none;
+                <a class="about-link" href="mailto:{email}" style="
+                    color:{CORAL}; text-decoration:none;
                     display:inline-flex; align-items:center; gap:6px; margin-top:4px;
                 ">{EMAIL_ICON} {email}</a>
             </div>
@@ -72,8 +82,8 @@ for col, (name, url, email) in zip(team_cols, TEAM):
 st.markdown(
     f"""
     <div style='text-align:center; margin-top:16px;'>
-        <a href="{GITHUB_URL}" target="_blank" style="
-            color:#7A2E2A; text-decoration:none; font-weight:700;
+        <a class="about-link" href="{GITHUB_URL}" target="_blank" style="
+            color:{CORAL}; text-decoration:none; font-weight:700;
             display:inline-flex; align-items:center; gap:6px;
         ">{GITHUB_ICON} View on GitHub</a>
     </div>

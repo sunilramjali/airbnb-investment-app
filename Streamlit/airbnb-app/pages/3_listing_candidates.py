@@ -48,6 +48,22 @@ if "starred_listings" not in st.session_state:
 st.title('Listing Candidates')
 st.subheader('Out of your favourite Property types, find the 10 best listings based on your selected persona. Choose 3 listings that spark the most interest, from any of the property types.')
 
+st.markdown(
+    """
+    <style>
+    .subsection-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b6b6b;
+        margin-bottom: 4px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 #SQL QUERY ---
 session = get_session()
@@ -288,21 +304,21 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                             )
                 
                                 with row_cols[2]:
-                                    st.markdown("### Investment")
+                                    st.markdown("<div class='subsection-label'>Investment</div>", unsafe_allow_html=True)
                                     st.write(f"**Investment Score:** {getattr(row, score_column):,.2f}")
                                     st.write(f"**Annual Revenue:** £{row.ANNUAL_REVENUE:,.0f}" if pd.notna(row.ANNUAL_REVENUE) else "**Annual Revenue:** N/A")
                                     st.write(f"**ADR:** £{row.ADR:,.0f}" if pd.notna(row.ADR) else "**ADR:** N/A")
                                     st.write(f"**RevPAR:** £{row.REVPAR:,.0f}" if pd.notna(row.REVPAR) else "**RevPAR:** N/A")
-                
+
                                 with row_cols[3]:
-                                    st.markdown("### Listing Details")
+                                    st.markdown("<div class='subsection-label'>Listing Details</div>", unsafe_allow_html=True)
                                     st.write(f"**Bedrooms:** {row.BEDROOM_GROUP}")
                                     st.write(f"**Bathrooms:** {row.BATHROOMS:,.0f}" if pd.notna(row.BATHROOMS) else "**Bathrooms:** N/A")
                                     st.write(f"**Beds:** {row.BEDS:,.0f}" if pd.notna(row.BEDS) else "**Beds:** N/A")
                                     st.write(f"**Accommodates:** {row.ACCOMMODATES:,.0f}" if pd.notna(row.ACCOMMODATES) else "**Accommodates:** N/A")
-                
+
                                 with row_cols[4]:
-                                    st.markdown("### Quality")
+                                    st.markdown("<div class='subsection-label'>Quality</div>", unsafe_allow_html=True)
                                     st.write(f"**Rating:** {row.REVIEW_SCORES_RATING:,.2f}" if pd.notna(row.REVIEW_SCORES_RATING) else "**Rating:** N/A")
                                     st.write(f"**Reviews:** {row.NUMBER_OF_REVIEWS:,.0f}" if pd.notna(row.NUMBER_OF_REVIEWS) else "**Reviews:** N/A")
                                     st.write(f"**Occupancy:** {row.OCCUPANCY_RATE:,.1f}%" if pd.notna(row.OCCUPANCY_RATE) else "**Occupancy:** N/A")

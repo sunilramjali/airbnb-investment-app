@@ -2,9 +2,11 @@
 # Co-authored with CoCo
 # Import python packages
 import streamlit as st
-from styles import apply_theme, TEXT_DARK, CORAL
+import pandas as pd
+from styles import apply_theme, TEXT_DARK, CORAL, ROSEWOOD, INK, STEEL, TANGELO
 from nav import render_nav_links
 from asset_utils import get_asset_uri
+from db import get_session
 
 st.set_page_config(page_title="BnB Invest", page_icon="🏡", layout='wide')
 
@@ -12,47 +14,80 @@ apply_theme(bottom_panel=True)
 
 render_nav_links()
 
-st.markdown(
-    """
-    <style>
-    @keyframes heroReveal {
-        from { opacity: 0; }
-        to   { opacity: 1; }
-    }
-    @keyframes heroFadeUp {
-        from { opacity: 0; transform: translateY(24px); }
-        to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes heroZoom {
-        from { opacity: 0; transform: scale(0.96); }
-        to   { opacity: 1; transform: scale(1); }
-    }
+# Signature element: the skyline art bookends the page — dusk here in the hero
+# (arrival), a lighter dawn tone in the footer (resolution). One orchestrated
+# load-in (background settles, then text arrives in sequence) replaces the
+# previous scattered fade-ups + hover-lifts scattered across the page.
+HERO_SKYLINE_URI = get_asset_uri("footer_skyline")
 
-    .st-key-hero {
-        /* Very soft radial glow for depth — existing white/coral palette, just a hint of warmth. */
-        background: radial-gradient(ellipse 900px 400px at 50% -10%, rgba(242,99,89,0.07), transparent 70%);
-        padding: 12px 0 8px 0;
-    }
-    .st-key-hero h1 {
-        animation: heroReveal 0.9s ease-out both;
-    }
-    .st-key-hero .landing-subheading {
-        color: #F2897E !important;
-        animation: heroFadeUp 0.8s ease-out both;
-        animation-delay: 0.15s;
-    }
-    .st-key-hero [data-testid="stMarkdownContainer"] p {
-        animation: heroFadeUp 0.8s ease-out both;
-        animation-delay: 0.3s;
-    }
-    .st-key-hero .st-key-cta_get_started {
-        animation: heroZoom 0.7s ease-out both;
+st.markdown(
+    f"""
+    <style>
+    @keyframes heroSettle {{
+        from {{ opacity: 0; transform: scale(1.04); }}
+        to   {{ opacity: 1; transform: scale(1); }}
+    }}
+    @keyframes heroFadeUp {{
+        from {{ opacity: 0; transform: translateY(18px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    .st-key-hero {{
+        background:
+            linear-gradient(100deg, rgba(43,33,31,0.92) 0%, rgba(43,33,31,0.65) 42%, rgba(43,33,31,0.2) 68%, rgba(43,33,31,0) 85%),
+            url('{HERO_SKYLINE_URI}') center 30% / cover no-repeat;
+        background-color: {INK};
+        border-radius: 24px;
+        padding: 64px 48px;
+        min-height: 440px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        animation: heroSettle 1.1s ease-out both;
+    }}
+    .st-key-hero h1 {{
+        color: #FFFAF0 !important;
+        font-size: 2.6rem !important;
+        line-height: 1.15;
+        max-width: 620px;
+        animation: heroFadeUp 0.7s ease-out both;
+        animation-delay: 0.35s;
+    }}
+    .st-key-hero .landing-subheading {{
+        color: #F2D9D3 !important;
+        font-weight: 500 !important;
+        max-width: 520px;
+        animation: heroFadeUp 0.7s ease-out both;
         animation-delay: 0.5s;
-    }
-    .st-key-cta_get_started div.stButton > button {
+    }}
+    .st-key-hero .hero-ticker {{
+        animation: heroFadeUp 0.7s ease-out both;
+        animation-delay: 0.65s;
+    }}
+    .st-key-hero .st-key-cta_get_started {{
+        animation: heroFadeUp 0.7s ease-out both;
+        animation-delay: 0.8s;
+    }}
+    .hero-ticker {{
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.82rem;
+        letter-spacing: 0.05em;
+        color: {STEEL};
+        background: rgba(92,114,133,0.15);
+        border: 1px solid rgba(92,114,133,0.4);
+        border-radius: 8px;
+        display: inline-block;
+        padding: 8px 16px;
+        margin: 20px 0 28px;
+    }}
+    .hero-ticker b {{
+        color: #FFFAF0;
+        font-weight: 600;
+    }}
+    .st-key-cta_get_started div.stButton > button {{
         height: auto !important;
         padding: 16px 20px !important;
-        background: linear-gradient(135deg, #F26359, #F3500A) !important;
+        background: linear-gradient(135deg, {CORAL}, {TANGELO}) !important;
         color: white !important;
         border: none !important;
         border-radius: 50px !important;
@@ -61,31 +96,32 @@ st.markdown(
         letter-spacing: 0.01em;
         box-shadow: 0 6px 18px rgba(242, 99, 89, 0.4) !important;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .st-key-cta_get_started div.stButton > button p {
+    }}
+    .st-key-cta_get_started div.stButton > button p {{
         color: white !important;
-    }
-    .st-key-cta_get_started div.stButton > button:hover {
+    }}
+    .st-key-cta_get_started div.stButton > button:hover {{
         transform: translateY(-3px);
         box-shadow: 0 10px 24px rgba(242, 99, 89, 0.55) !important;
-    }
+    }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 with st.container(key="hero"):
-    st.title("Airbnb Investment Intelligence")
+    st.title("See what it'll actually earn, before you buy it.")
     st.markdown(
-        "<h3 class='landing-subheading'>Find your next property investment</h3>",
+        "<h3 class='landing-subheading'>London, Bristol, and Greater Manchester — "
+        "scored against what you actually care about.</h3>",
         unsafe_allow_html=True,
     )
-    st.write(
-        """Compare neighbourhoods, property types, and real listings across London, Bristol, and Greater Manchester, scored against what matters most to you.
-      """
+    st.markdown(
+        "<div class='hero-ticker'><b>1,000+</b> LISTINGS &nbsp;·&nbsp; "
+        "<b>3</b> CITIES &nbsp;·&nbsp; <b>3</b> PERSONAS &nbsp;·&nbsp; "
+        "<b>4</b> DATA SOURCES</div>",
+        unsafe_allow_html=True,
     )
-
-    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 
     cta_col1, cta_col2, cta_col3 = st.columns([2, 1, 2])
     with cta_col2:
@@ -93,51 +129,36 @@ with st.container(key="hero"):
             if st.button("Get Started →", type="primary", use_container_width=True):
                 st.switch_page("pages/0_Get_Started.py")
 
-# ── KPI stat cards ───────────────────────────────────────────────────────────
-st.markdown(
-    """
-    <style>
-    .kpi-value {
-        font-size: 2.1rem;
-        font-weight: 700;
-        color: #F26359;
-        text-align: center;
-        line-height: 1.1;
-    }
-    .kpi-label {
-        font-family: monospace;
-        font-size: 0.72rem;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: #333333;
-        text-align: center;
-        margin-top: 4px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+# ── What this app does (editorial 2-col list, not a 4-card grid) ───────────────
+_ICON_ATTRS = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F26359" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+ICON_BAR_CHART = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><line x1="4" y1="20" x2="4" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/></svg>'
+ICON_TARGET = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>'
+ICON_MAP_PIN = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+ICON_DOCUMENT = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>'
+
+ADVANTAGES = [
+    (ICON_BAR_CHART, "Data-driven scoring", "Every neighbourhood and property type is ranked using real listing revenue, occupancy, and rating data — not guesswork."),
+    (ICON_TARGET, "Persona-based results", "Recommendations are tailored to what you actually care about: yield, occupancy, or guest experience."),
+    (ICON_MAP_PIN, "Local context built in", "Points of interest, transport links, and dining density are factored into every area's score."),
+    (ICON_DOCUMENT, "AI-generated summaries", "Plain-English investment summaries, strengths, and risks for every area and property type."),
+]
+advantages_rows_html = "".join(
+    f'''<div class="advantage-row">
+        <div class="advantage-icon">{icon}</div>
+        <div>
+            <div class="advantage-heading">{heading}</div>
+            <div class="advantage-desc">{description}</div>
+        </div>
+    </div>'''
+    for icon, heading, description in ADVANTAGES
 )
 
-KPIS = [
-    ("1,000+", "Listings Analysed"),
-    ("3", "UK Cities Covered"),
-    ("3", "Investor Personas"),
-    ("4", "Data Sources"),
-]
-
-kpi_cols = st.columns(4, border=True)
-for col, (value, label) in zip(kpi_cols, KPIS):
-    with col:
-        st.markdown(f"<div class='kpi-value'>{value}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-label'>{label}</div>", unsafe_allow_html=True)
-
-# ── What this app does ────────────────────────────────────────────────────────
 st.markdown(
-    """
+    f"""
     <style>
-    .st-key-what_this_app_does {
+    .st-key-what_this_app_does {{
         background-color: #FBE0C8;
-        padding: 24px 20px 32px;
+        padding: 48px 20px;
         margin-top: 32px;
         width: auto;
         max-width: 100vw !important;
@@ -146,42 +167,57 @@ st.markdown(
         margin-right: calc(-50vw + 50%);
         overflow: visible !important;
         box-sizing: border-box;
-    }
+    }}
+    .st-key-what_this_app_does [data-testid="stHorizontalBlock"] {{
+        max-width: 1100px;
+        margin: 0 auto !important;
+        align-items: flex-start !important;
+    }}
+    .what-app-intro h3 {{
+        margin-top: 0;
+    }}
+    .advantage-row {{
+        display: flex;
+        gap: 16px;
+        padding: 16px 0;
+        border-top: 1px solid rgba(92,114,133,0.3);
+    }}
+    .advantage-row:first-child {{
+        border-top: none;
+    }}
+    .advantage-icon {{
+        flex-shrink: 0;
+        margin-top: 2px;
+    }}
+    .advantage-heading {{
+        font-weight: 700;
+        margin-bottom: 4px;
+    }}
+    .advantage-desc {{
+        font-size: 0.85rem;
+        color: {INK};
+    }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 with st.container(key="what_this_app_does"):
-    st.markdown("<h3 style='text-align:center;'>What This App Does</h3>", unsafe_allow_html=True)
-    st.write(
-        "BnB Invest analyses Airbnb listing performance, sale prices, and local amenities "
-        "across London, Bristol, and Greater Manchester to help you find where a short-term "
-        "rental is most likely to perform well — and why."
-    )
+    intro_col, list_col = st.columns([1, 1.2], gap="large")
+    with intro_col:
+        st.markdown(
+            """<div class="what-app-intro">
+                <h3>What This App Does</h3>
+                <p>BnB Invest analyses Airbnb listing performance, sale prices, and local
+                amenities across London, Bristol, and Greater Manchester to help you find
+                where a short-term rental is most likely to perform well &mdash; and why.</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with list_col:
+        st.markdown(advantages_rows_html, unsafe_allow_html=True)
 
-    _ICON_ATTRS = 'width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
-
-    ICON_BAR_CHART = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><line x1="4" y1="20" x2="4" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="20" y1="20" x2="20" y2="14"/></svg>'
-    ICON_TARGET = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>'
-    ICON_MAP_PIN = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>'
-    ICON_DOCUMENT = f'<svg xmlns="http://www.w3.org/2000/svg" {_ICON_ATTRS}><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>'
-
-    ADVANTAGES = [
-        (ICON_BAR_CHART, "Data-driven scoring", "Every neighbourhood and property type is ranked using real listing revenue, occupancy, and rating data — not guesswork."),
-        (ICON_TARGET, "Persona-based results", "Recommendations are tailored to what you actually care about: yield, occupancy, or guest experience."),
-        (ICON_MAP_PIN, "Local context built in", "Points of interest, transport links, and dining density are factored into every area's score."),
-        (ICON_DOCUMENT, "AI-generated summaries", "Plain-English investment summaries, strengths, and risks for every area and property type."),
-    ]
-
-    adv_cols = st.columns(4, border=True)
-    for col, (icon, heading, description) in zip(adv_cols, ADVANTAGES):
-        with col:
-            st.markdown(f"<div style='color:#F26359;text-align:center;'>{icon}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-weight:700;text-align:center;margin-bottom:4px;'>{heading}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:0.85rem;text-align:center;color:#333333;'>{description}</div>", unsafe_allow_html=True)
-
-# ── How it works ──────────────────────────────────────────────────────────────
+# ── How it works (connected timeline — this content is a real sequence) ────────
 st.markdown(
     """
     <style>
@@ -196,6 +232,23 @@ st.markdown(
         margin-right: calc(-50vw + 50%);
         overflow: visible !important;
         box-sizing: border-box;
+    }
+    .st-key-how_it_works [data-testid="stHorizontalBlock"] {
+        position: relative;
+    }
+    .st-key-how_it_works [data-testid="stHorizontalBlock"]::before {
+        content: "";
+        position: absolute;
+        top: 16px;
+        left: 12.5%;
+        right: 12.5%;
+        height: 2px;
+        background: rgba(92,114,133,0.45);
+        z-index: 0;
+    }
+    .st-key-how_it_works [data-testid="column"] {
+        position: relative;
+        z-index: 1;
     }
     </style>
     """,
@@ -226,6 +279,177 @@ with st.container(key="how_it_works"):
             )
             st.markdown(f"<div style='font-weight:700;text-align:center;margin-bottom:4px;'>{heading}</div>", unsafe_allow_html=True)
             st.markdown(f"<div style='font-size:0.85rem;text-align:center;color:#333333;'>{description}</div>", unsafe_allow_html=True)
+
+# ── Example listings: real top-scoring listings, one per city, linking out to
+# the actual Airbnb listing (not fabricated placeholders).
+@st.cache_data(ttl=600)
+def load_example_listings(_session):
+    return _session.sql(
+        """
+        SELECT CITY, NAME, PICTURE_URL, LISTING_URL, ADR, REVIEW_SCORES_RATING, BEDROOMS
+        FROM (
+            SELECT
+                b.CITY,
+                a.NAME,
+                a.PICTURE_URL,
+                a.LISTING_URL,
+                a.ADR,
+                a.REVIEW_SCORES_RATING,
+                a.BEDROOMS,
+                ROW_NUMBER() OVER (
+                    PARTITION BY b.CITY
+                    ORDER BY b.SCORE_YIELD_MAXIMISER DESC
+                ) AS RN
+            FROM AIRBNB_INVESTMENT_DB.GOLD.MART_LISTING_CANDIDATES a
+            JOIN AIRBNB_INVESTMENT_DB.GOLD.INVESTMENT_SCORES b
+                ON a.LISTING_ID = b.LISTING_ID
+            WHERE a.PICTURE_URL IS NOT NULL
+                AND a.LISTING_URL IS NOT NULL
+                AND a.NAME IS NOT NULL
+        )
+        WHERE RN = 1
+        ORDER BY CITY
+        """
+    ).to_pandas()
+
+try:
+    example_listings = load_example_listings(get_session())
+except Exception:
+    example_listings = None
+
+st.markdown(
+    f"""
+    <style>
+    .example-listings-title {{ text-align:center; margin: 48px 0 4px; }}
+    .example-listings-sub {{ text-align:center; color:{INK}; margin-bottom:28px; }}
+    .listing-card {{
+        display: block;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+        background: #FFFAF0;
+        border: 1px solid #F4EFEB;
+        color: inherit;
+        text-decoration: none;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+    .listing-card:hover {{
+        transform: translateY(-4px);
+        box-shadow: 0 14px 28px rgba(242,99,89,0.22);
+    }}
+    .listing-card .listing-photo {{
+        position: relative;
+        height: 170px;
+    }}
+    .listing-card .listing-photo img {{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }}
+    .listing-card .listing-badge {{
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: {CORAL};
+        color: white;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 4px 10px;
+        border-radius: 20px;
+    }}
+    .listing-card .listing-body {{
+        padding: 14px 16px 18px;
+    }}
+    .listing-card .listing-name {{
+        font-weight: 700;
+        margin-bottom: 2px;
+    }}
+    .listing-card .listing-city {{
+        font-size: 0.8rem;
+        color: #6b6b6b;
+        margin-bottom: 10px;
+    }}
+    .listing-card .listing-stats {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-top: 1px solid #F4EFEB;
+        padding-top: 10px;
+    }}
+    .listing-card .listing-price {{
+        font-weight: 700;
+        color: {CORAL};
+    }}
+    .listing-card .listing-metric {{
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.78rem;
+        color: {STEEL};
+    }}
+    </style>
+    <h3 class="example-listings-title">See it in action</h3>
+    <p class="example-listings-sub">Real top-scoring listings from our data, one per city &mdash; click through to the actual Airbnb listing.</p>
+    """,
+    unsafe_allow_html=True,
+)
+
+valid_listings = []
+if example_listings is not None and not example_listings.empty:
+    valid_listings = [
+        row for _, row in example_listings.iterrows()
+        if row.get("LISTING_URL") and row.get("PICTURE_URL")
+    ]
+
+if not valid_listings:
+    st.markdown(
+        f"""
+        <div style="
+            background: #FFFAF0;
+            border: 1px solid #F4EFEB;
+            border-radius: 16px;
+            padding: 28px;
+            text-align: center;
+            color: {INK};
+        ">
+            <div style="font-weight: 700; margin-bottom: 4px;">Listing examples are temporarily unavailable</div>
+            <div style="font-size: 0.85rem; color: #6b6b6b;">Check back soon &mdash; or explore live scoring yourself in Get Started.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    listing_cols = st.columns(len(valid_listings))
+    for col, row in zip(listing_cols, valid_listings):
+        with col:
+            listing_url = row.get("LISTING_URL")
+            picture_url = row.get("PICTURE_URL")
+            name = row.get("NAME") or "Listing"
+            city = row.get("CITY") or ""
+            rating_val = row.get("REVIEW_SCORES_RATING")
+            adr_val = row.get("ADR")
+            bedrooms_val = row.get("BEDROOMS")
+            rating = f"{rating_val:,.2f}★" if pd.notna(rating_val) else "N/A"
+            adr = f"£{adr_val:,.0f}/night" if pd.notna(adr_val) else "N/A"
+            bedrooms = f"{int(bedrooms_val)}-bed" if pd.notna(bedrooms_val) else ""
+            st.markdown(
+                f'''<a class="listing-card" href="{listing_url}" target="_blank" rel="noopener">
+                    <div class="listing-photo">
+                        <img src="{picture_url}" alt="{name}"/>
+                        <div class="listing-badge">Top Pick</div>
+                    </div>
+                    <div class="listing-body">
+                        <div class="listing-name">{name}</div>
+                        <div class="listing-city">{bedrooms} &middot; {city}</div>
+                        <div class="listing-stats">
+                            <span class="listing-price">{adr}</span>
+                            <span class="listing-metric">{rating}</span>
+                        </div>
+                    </div>
+                </a>''',
+                unsafe_allow_html=True,
+            )
 
 # ── Built-with logo marquee ──────────────────────────────────────────────────
 TECH_STACK = [
@@ -324,7 +548,7 @@ FAQ = [
     ),
 ]
 
-FAQ_BG = CORAL  # matches the footer background's dominant red
+FAQ_BG = ROSEWOOD  # "Dusk" — one consistent dark tone, not a rotating red
 FAQ_TEXT = "#F2F2F2"
 
 st.markdown(
@@ -338,7 +562,7 @@ st.markdown(
         position: relative;
         margin-left: calc(-50vw + 50%);
         margin-right: calc(-50vw + 50%);
-        margin-top: 32px;
+        margin-top: 0;
         overflow: visible !important;
         box-sizing: border-box;
     }}
@@ -373,14 +597,16 @@ with st.container(key="faq_section"):
         with st.expander(question):
             st.write(answer)
 
-# ── Closing CTA banner ─────────────────────────────────────────────────────────
+# ── Closing CTA banner: the skyline returns, dawn-toned (resolution) ───────────
 st.markdown(
-    """
+    f"""
     <style>
-    .st-key-dream_banner {
-        background-color: #F8D9D3;
-        padding: 32px 40px;
-        margin-top: 32px;
+    .st-key-dream_banner {{
+        background:
+            linear-gradient(rgba(255,250,240,0.86), rgba(255,250,240,0.86)),
+            url('{HERO_SKYLINE_URI}') center 40% / cover no-repeat;
+        padding: 48px 40px;
+        margin-top: -16px;
         width: auto;
         max-width: 100vw !important;
         position: relative;
@@ -388,20 +614,21 @@ st.markdown(
         margin-right: calc(-50vw + 50%);
         overflow: visible !important;
         box-sizing: border-box;
-    }
-    .st-key-dream_banner [data-testid="stHorizontalBlock"] {
+    }}
+    .st-key-dream_banner [data-testid="stHorizontalBlock"] {{
         align-items: center !important;
-    }
-    .dream-banner-heading {
+    }}
+    .dream-banner-heading {{
         font-size: 1.7rem;
         font-weight: 700;
         line-height: 1.25;
         margin: 0;
-    }
-    .st-key-cta_dream div.stButton > button {
+        color: {INK};
+    }}
+    .st-key-cta_dream div.stButton > button {{
         height: auto !important;
         padding: 16px 28px !important;
-        background: linear-gradient(135deg, #F26359, #F3500A) !important;
+        background: linear-gradient(135deg, {CORAL}, {TANGELO}) !important;
         color: white !important;
         border: none !important;
         border-radius: 50px !important;
@@ -409,14 +636,14 @@ st.markdown(
         font-weight: 700 !important;
         box-shadow: 0 6px 18px rgba(242, 99, 89, 0.4) !important;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .st-key-cta_dream div.stButton > button p {
+    }}
+    .st-key-cta_dream div.stButton > button p {{
         color: white !important;
-    }
-    .st-key-cta_dream div.stButton > button:hover {
+    }}
+    .st-key-cta_dream div.stButton > button:hover {{
         transform: translateY(-3px);
         box-shadow: 0 10px 24px rgba(242, 99, 89, 0.55) !important;
-    }
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -431,7 +658,7 @@ with st.container(key="dream_banner"):
         )
     with banner_col2:
         with st.container(key="cta_dream"):
-            if st.button("Get Started →", use_container_width=True):
+            if st.button("Get Started →", type="primary", use_container_width=True, key="btn_cta_dream"):
                 st.switch_page("pages/0_Get_Started.py")
 
 # ── Footer constants ──────────────────────────────────────────────────────────

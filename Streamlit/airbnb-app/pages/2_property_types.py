@@ -9,9 +9,13 @@ import json
 import time
 import altair as alt
 from db import get_session
-from styles import apply_theme
+from styles import apply_theme, CORAL, TANGELO, SINOPIA, STEEL, SAFETY_ORANGE, ROSEWOOD
 from nav import render_breadcrumb
 import persist
+
+# Brand-consistent chart palette, replacing Vega's default rainbow schemes
+# (category10 / set3) so the pie charts match the rest of the app.
+CHART_PALETTE = [CORAL, STEEL, TANGELO, SAFETY_ORANGE, SINOPIA, ROSEWOOD]
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -331,7 +335,7 @@ if selected_neighbourhood is not None:
                                 color=alt.Color(
                                     "PIE_GROUP:N",
                                     title="Property Type",
-                                    scale=alt.Scale(scheme="category10")
+                                    scale=alt.Scale(range=CHART_PALETTE)
                                 ),
                                 opacity=alt.condition(
                                     property_selection,
@@ -410,7 +414,7 @@ if selected_neighbourhood is not None:
                                 color=alt.Color(
                                     "BEDROOM_GROUP:N",
                                     title="Bedrooms",
-                                    scale=alt.Scale(scheme="set3"),
+                                    scale=alt.Scale(range=CHART_PALETTE),
                                     sort=["1", "2", "3", "4+"]
                                 ),
                                 opacity=alt.condition(
@@ -484,7 +488,15 @@ if selected_neighbourhood is not None:
                                 star_col1, star_col2 = st.columns([3, 1])
                 
                                 with star_col1:
-                                    st.write(f"**⭐ {property_group}**")
+                                    st.markdown(
+                                        f'''<div style="display:flex;align-items:center;gap:6px;font-weight:700;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="#F26359" stroke="#F26359">
+                                                <polygon points="12 2 15.09 8.63 22 9.24 17 14.14 18.18 21 12 17.77 5.82 21 7 14.14 2 9.24 8.91 8.63"/>
+                                            </svg>
+                                            {property_group}
+                                        </div>''',
+                                        unsafe_allow_html=True,
+                                    )
                                     st.write(neighbourhood)
                                     st.caption(city_name)
                 

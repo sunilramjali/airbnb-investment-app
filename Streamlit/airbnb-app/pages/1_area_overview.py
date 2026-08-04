@@ -381,7 +381,15 @@ with map_col2:
             star_col1, star_col2 = st.columns([3, 1])
         
             with star_col1:
-                st.write('⭐ ' + neighbourhood)
+                st.markdown(
+                    f'''<div style="display:flex;align-items:center;gap:6px;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="#F26359" stroke="#F26359">
+                            <polygon points="12 2 15.09 8.63 22 9.24 17 14.14 18.18 21 12 17.77 5.82 21 7 14.14 2 9.24 8.91 8.63"/>
+                        </svg>
+                        {neighbourhood}
+                    </div>''',
+                    unsafe_allow_html=True,
+                )
                 st.caption(city_name)
         
             with star_col2:

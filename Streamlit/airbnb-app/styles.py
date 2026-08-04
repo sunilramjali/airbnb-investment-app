@@ -15,7 +15,20 @@ SINOPIA = "#D92200"
 DARK_RED = "#920004"
 ROSEWOOD = "#5A0006"
 
+# Ink: warm near-black for body/heading text, replacing flat #000/#333.
+# Steel: the one cool accent on an otherwise all-warm page — pulled from the
+# glass-tower/dusk-sky tones in the skyline art. Used sparingly (rules, data).
+INK = "#2B211F"
+STEEL = "#5C7285"
+
 TEXT_DARK = DARK_RED
+
+# Google Fonts: Space Grotesk (display, headings) + IBM Plex Mono (data/stats).
+FONT_IMPORT_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+</style>
+"""
 
 BASE_CSS = f"""
 <style>
@@ -77,17 +90,19 @@ section[data-testid="stSidebar"] {{
 /* Big headings */
 h1, h2 {{
     color: {CORAL} !important;
+    font-family: 'Space Grotesk', sans-serif !important;
 }}
 
 /* Smaller headings */
 h3, h4, h5, h6 {{
-    color: #000000 !important;
+    color: {INK} !important;
+    font-family: 'Space Grotesk', sans-serif !important;
 }}
 
 /* Normal markdown text */
 [data-testid="stMarkdownContainer"] p,
 [data-testid="stMarkdownContainer"] li {{
-    color: #000000 !important;
+    color: {INK} !important;
 }}
 
 /* Captions */
@@ -224,6 +239,16 @@ div[data-baseweb="popover"] li {{
 div[data-baseweb="popover"] li:hover {{
     background-color: {CORAL_LIGHT} !important;
     color: #000000 !important;
+}}
+
+/* Visible keyboard-focus ring, app-wide (buttons, links, inputs, page-links) */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+[data-baseweb="slider"] [role="slider"]:focus-visible {{
+    outline: 3px solid {CORAL} !important;
+    outline-offset: 2px !important;
 }}
 </style>
 """
@@ -441,7 +466,7 @@ def apply_theme(bottom_panel: bool = False, print_css: bool = False) -> None:
     print_css:    include the print stylesheet (comparison pages with a
                   "print to PDF" button).
     """
-    css = BASE_CSS
+    css = FONT_IMPORT_CSS + BASE_CSS
     if bottom_panel:
         css += BOTTOM_PANEL_CSS
     if print_css:
