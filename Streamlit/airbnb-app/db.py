@@ -14,8 +14,25 @@ from snowflake.snowpark import Session
 from cryptography.hazmat.primitives import serialization
 
 
+def _dev_use_synthetic_data() -> bool:
+    # Local dev kill switch — set `dev_use_synthetic_data = true` in
+    # .streamlit/secrets.toml (git-ignored) to skip Snowflake entirely and
+    # serve synthetic data from mock_session.MockSession instead. Useful
+    # while the real Snowflake account is unreachable. Unset elsewhere
+    # (Community Cloud, Snowflake), so this never affects a real deployment.
+    try:
+        return bool(st.secrets.get("dev_use_synthetic_data", False))
+    except Exception:
+        return False
+
+
 @st.cache_resource
 def get_session() -> Session:
+    if _dev_use_synthetic_data():
+        from mock_session import MockSession
+
+        return MockSession()
+
     # Prefer the active session when running inside Snowflake.
     try:
         from snowflake.snowpark.context import get_active_session

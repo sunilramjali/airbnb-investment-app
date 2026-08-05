@@ -7,7 +7,9 @@ import sys
 import streamlit as st
 import pandas as pd
 from db import get_session
+from styles import apply_theme
 from nav import render_breadcrumb
+import persist
 
 # Make the repo's shared AI helpers importable (scripts/ai lives outside the app dir).
 _SCRIPTS_AI = os.path.abspath(
@@ -17,256 +19,9 @@ if _SCRIPTS_AI not in sys.path:
     sys.path.insert(0, _SCRIPTS_AI)
 import listing_comparison_helper as lch
 
-#CUSTOM CSS SCRIPT FOR PAGE LOOK
-st.markdown(
-    """
-    <style>
-    /* Main app */
-    .stApp {
-        background-color: white !important;
-    }
+st.set_page_config(page_title="Listing Candidates", page_icon="🏡", layout='wide')
 
-    [data-testid="stFullScreenFrame"] {
-        background-color: white !important;
-    }
-
-    [data-testid="stBottom"],
-    [data-testid="stBottom"] > div,
-    [data-testid="stBottomBlockContainer"] {
-        left: 0px !important;
-        right: auto !important;
-        width: 62% !important;
-        max-width: 950px !important;
-        min-width: 500px !important;
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        transform: none !important;
-        background: transparent !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        border-top: none !important;
-        pointer-events: none !important;
-        bottom: 0 !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        padding-bottom: 0 !important;
-    }
-
-    [data-testid="stBottomBlockContainer"] > div {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        width: 100% !important;
-        max-width: 950px !important;
-        background-color: white !important;
-        border: 1px solid #f26359 !important;
-        border-radius: 12px !important;
-        padding: 16px !important;
-        pointer-events: auto !important;
-        max-height: 42vh !important;
-        overflow-y: auto !important;
-    }
-    [data-testid="stBottomBlockContainer"] [data-testid="stVerticalBlock"] {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-        width: 100% !important;
-    }
-
-    [data-testid="stBottomBlockContainer"] [data-testid="stElementContainer"] {
-        margin-left: 0px !important;
-        margin-right: auto !important;
-    }
-
-    [data-testid="stExpander"] summary {
-        background-color: #f8d9d3 !important;
-    }
-
-    [data-testid="stExpander"] summary:hover {
-        background-color: #f26359 !important;
-    }
-
-    [data-testid="stExpander"] details[open] summary {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        display: none !important;
-    }
-
-    [data-testid="collapsedControl"] {
-        display: none !important;
-    }
-    
-    section[data-testid="stSidebar"] {
-        background-color: white !important;
-        display: none !important;
-    }
-
-    [data-testid="stSelectbox"] input {
-        background-color: #f8d9d3 !important;
-        color: #f26359 !important;
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    [data-testid="stSelectbox"] button {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Big headings */
-    h1, h2 {
-        color: #f26359 !important;
-    }
-
-    /* Smaller headings */
-    h3, h4, h5, h6 {
-        color: #000000 !important;
-    }
-
-    /* Normal markdown text */
-    [data-testid="stMarkdownContainer"] p,
-    [data-testid="stMarkdownContainer"] li {
-        color: #000000 !important;
-    }
-
-    /* Captions */
-    [data-testid="stCaptionContainer"] {
-        color: #000000 !important;
-    }
-
-    div[data-testid="stAlert"] {
-        background-color: #FCEDEA !important;
-        color: #7A2E2A !important;
-        border: 1px solid #F26359 !important;
-        border-left: 6px solid #F26359 !important;
-        border-radius: 12px !important;
-    }
-
-    div[data-testid="stAlert"] p,
-    div[data-testid="stAlert"] div {
-        color: #7A2E2A !important;
-    }
-
-    /* Metrics */
-    [data-testid="stMetricLabel"],
-    [data-testid="stMetricValue"] {
-        color: #000000 !important;
-    }
-
-    /* Buttons */
-    div.stButton > button[kind="secondary"] {
-        background-color:#FFFAF0 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-        border-radius: 12px !important;
-    }
-
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-    }
-
-    div.stButton > button[kind="primary"] {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: #f8d9d3 !important;
-        border: 2px solid #f26359 !important;
-        border-radius: 12px !important;
-    }
-
-    div.stButton > button p {
-        white-space: pre-line !important;
-        text-align: center !important;
-        line-height: 1.3 !important;
-    }
-
-    [data-testid="stLinkButton"] a {
-        background-color:#FFFAF0 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-        border-radius: 12px !important;
-    }
-
-    [data-testid="stLinkButton"] a:hover {
-        background-color: #f8d9d3 !important;
-        width: 100% !important;
-        height: 90px !important;
-        font-size: 20px !important;
-        font-weight: 600 !important;
-        color: white !important;
-        border: 2px solid #F4EFEB !important;
-    }
-
-     /* Multiselect outer box */
-    [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
-        background-color: #f8d9d3 !important;
-    }
-
-    /* Text typed inside the multiselect */
-    [data-testid="stMultiSelect"] input {
-        color: #000000 !important;
-        -webkit-text-fill-color: #000000 !important;
-    }
-
-    /* Placeholder text */
-    [data-testid="stMultiSelect"] input::placeholder {
-        color: #7A2E2A !important;
-        opacity: 1 !important;
-    }
-
-    /* Selected option boxes / tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-        background-color: #f26359 !important;
-        color: #ffffff !important;
-        border-radius: 8px !important;
-    }
-
-    /* Text inside selected tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
-        color: #ffffff !important;
-    }
-
-    /* Remove icon inside selected tags */
-    [data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }
-
-    /* Dropdown menu background */
-    div[data-baseweb="popover"] ul {
-        background-color: #ffffff !important;
-    }
-
-    /* Dropdown options */
-    div[data-baseweb="popover"] li {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-    }
-
-    /* Dropdown option hover */
-    div[data-baseweb="popover"] li:hover {
-        background-color: #f8d9d3 !important;
-        color: #000000 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+apply_theme(bottom_panel=True)
 
 render_breadcrumb("listing_candidates")
 
@@ -292,6 +47,22 @@ if "starred_listings" not in st.session_state:
 
 st.title('Listing Candidates')
 st.subheader('Out of your favourite Property types, find the 10 best listings based on your selected persona. Choose 3 listings that spark the most interest, from any of the property types.')
+
+st.markdown(
+    """
+    <style>
+    .subsection-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b6b6b;
+        margin-bottom: 4px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 #SQL QUERY ---
@@ -427,7 +198,8 @@ selected_structure_class = st.session_state["selected_listing_structure_class"]
 selected_bedroom_group = st.session_state["selected_listing_bedroom_group"]
 selected_neighbourhood = st.session_state["selected_listing_neighbourhood"]
 selected_city = st.session_state["selected_listing_city"]
-persona = st.session_state.get("persona", None)
+persona = st.session_state.get("persona", None) or persist.get_persona()
+st.session_state["persona"] = persona
 
 if selected_structure_class is not None and selected_bedroom_group is not None:
 
@@ -532,21 +304,21 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                             )
                 
                                 with row_cols[2]:
-                                    st.markdown("### Investment")
+                                    st.markdown("<div class='subsection-label'>Investment</div>", unsafe_allow_html=True)
                                     st.write(f"**Investment Score:** {getattr(row, score_column):,.2f}")
                                     st.write(f"**Annual Revenue:** £{row.ANNUAL_REVENUE:,.0f}" if pd.notna(row.ANNUAL_REVENUE) else "**Annual Revenue:** N/A")
                                     st.write(f"**ADR:** £{row.ADR:,.0f}" if pd.notna(row.ADR) else "**ADR:** N/A")
                                     st.write(f"**RevPAR:** £{row.REVPAR:,.0f}" if pd.notna(row.REVPAR) else "**RevPAR:** N/A")
-                
+
                                 with row_cols[3]:
-                                    st.markdown("### Listing Details")
+                                    st.markdown("<div class='subsection-label'>Listing Details</div>", unsafe_allow_html=True)
                                     st.write(f"**Bedrooms:** {row.BEDROOM_GROUP}")
                                     st.write(f"**Bathrooms:** {row.BATHROOMS:,.0f}" if pd.notna(row.BATHROOMS) else "**Bathrooms:** N/A")
                                     st.write(f"**Beds:** {row.BEDS:,.0f}" if pd.notna(row.BEDS) else "**Beds:** N/A")
                                     st.write(f"**Accommodates:** {row.ACCOMMODATES:,.0f}" if pd.notna(row.ACCOMMODATES) else "**Accommodates:** N/A")
-                
+
                                 with row_cols[4]:
-                                    st.markdown("### Quality")
+                                    st.markdown("<div class='subsection-label'>Quality</div>", unsafe_allow_html=True)
                                     st.write(f"**Rating:** {row.REVIEW_SCORES_RATING:,.2f}" if pd.notna(row.REVIEW_SCORES_RATING) else "**Rating:** N/A")
                                     st.write(f"**Reviews:** {row.NUMBER_OF_REVIEWS:,.0f}" if pd.notna(row.NUMBER_OF_REVIEWS) else "**Reviews:** N/A")
                                     st.write(f"**Occupancy:** {row.OCCUPANCY_RATE:,.1f}%" if pd.notna(row.OCCUPANCY_RATE) else "**Occupancy:** N/A")
@@ -615,3 +387,4 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                 if data.get("what_to_avoid"):
                                     st.markdown("**What to avoid**")
                                     st.write(data["what_to_avoid"])
+
