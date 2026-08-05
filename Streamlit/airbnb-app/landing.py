@@ -825,7 +825,6 @@ FOOTER_NAV_EXPLORE = [
     ("Area Overview", "pages/1_area_overview.py"),
     ("Property Types", "pages/2_property_types.py"),
     ("Listing Candidates", "pages/3_listing_candidates.py"),
-    ("Live Listings", "pages/5_Live_Listings.py"),
 ]
 FOOTER_NAV_COMPANY = [
     ("About Us", "pages/6_About_Us.py"),

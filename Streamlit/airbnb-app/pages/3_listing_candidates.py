@@ -388,6 +388,3 @@ if selected_structure_class is not None and selected_bedroom_group is not None:
                                     st.markdown("**What to avoid**")
                                     st.write(data["what_to_avoid"])
 
-st.divider()
-if st.button('Continue to Live Listings', use_container_width=True):
-    st.switch_page('pages/5_Live_Listings.py')

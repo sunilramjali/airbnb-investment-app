@@ -26,7 +26,6 @@ FLOW = [
     ("area_overview", "Area Overview", "pages/1_area_overview.py"),
     ("property_types", "Property Types", "pages/2_property_types.py"),
     ("listing_candidates", "Listing Candidates", "pages/3_listing_candidates.py"),
-    ("live_listings", "Live Listings", "pages/5_Live_Listings.py"),
 ]
 
 _DOC_PAGE = "pages/4_Documentation.py"
