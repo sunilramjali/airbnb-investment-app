@@ -505,7 +505,7 @@ else:
 # ── Built-with logo marquee ──────────────────────────────────────────────────
 TECH_STACK = [
     ("airbnb", "Inside Airbnb", 52),
-    ("gemini", "Gemini", 52),
+    ("gemini", "Gemini", 68),
     ("claude", "Claude", 40),
     ("openai", "OpenAI", 40),
     ("snowflake", "Snowflake", 40),
