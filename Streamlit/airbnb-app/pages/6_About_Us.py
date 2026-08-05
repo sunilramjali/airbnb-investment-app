@@ -53,9 +53,10 @@ GITHUB_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fi
 EMAIL_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>'
 
 TEAM = [
-    ("Adam Choy",      "https://www.linkedin.com/in/adam-choy-b95715190/",       "agc.choy@gmail.com"),
-    ("Sunil Ramjali",  "https://www.linkedin.com/in/sunilramjali/",              "ramjs016.310@gmail.com"),
-    ("Kanmani Vijay",  "https://www.linkedin.com/in/kanmani-vijay-8451a322b/",   "kanmanivj02@gmail.com"),
+    ("Adam Choy",         "https://www.linkedin.com/in/adam-choy-b95715190/",              "agc.choy@gmail.com"),
+    ("Sunil Ramjali",     "https://www.linkedin.com/in/sunilramjali/",                     "ramjs016.310@gmail.com"),
+    ("Kanmani Vijay",     "https://www.linkedin.com/in/kanmani-vijay-8451a322b/",          "kanmanivj02@gmail.com"),
+    ("Ayenorya Otsumah",  "https://www.linkedin.com/in/ayenorya-otsumah-140930330/",       "ayenor3@yahoo.com"),
 ]
 GITHUB_URL = "https://github.com/sunilramjali/airbnb-investment-app"
 
