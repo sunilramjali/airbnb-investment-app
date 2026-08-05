@@ -31,11 +31,21 @@ st.markdown(
         from {{ opacity: 0; transform: translateY(18px); }}
         to   {{ opacity: 1; transform: translateY(0); }}
     }}
+    /* Slow drift across the skyline, so the hero feels alive without
+       distracting from the text sitting on top of it. */
+    @keyframes heroKenBurns {{
+        0%   {{ transform: scale(1) translate(0, 0); }}
+        100% {{ transform: scale(1.08) translate(-1%, -1%); }}
+    }}
+    @keyframes heroTwinkle {{
+        0%, 100% {{ opacity: 0.15; transform: scale(0.7); }}
+        50%      {{ opacity: 1;    transform: scale(1.4); }}
+    }}
 
     .st-key-hero {{
-        background:
-            linear-gradient(100deg, rgba(43,33,31,0.92) 0%, rgba(43,33,31,0.65) 42%, rgba(43,33,31,0.2) 68%, rgba(43,33,31,0) 85%),
-            url('{HERO_SKYLINE_URI}') center 30% / cover no-repeat;
+        position: relative;
+        z-index: 0;
+        overflow: hidden;
         background-color: {INK};
         border-radius: 24px;
         padding: 64px 48px;
@@ -44,6 +54,36 @@ st.markdown(
         flex-direction: column;
         justify-content: center;
         animation: heroSettle 1.1s ease-out both;
+    }}
+    /* Skyline art, isolated on its own layer so the filter below tints the
+       image without dragging the foreground text along with it. */
+    .st-key-hero::before {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background:
+            linear-gradient(100deg, rgba(43,33,31,0.92) 0%, rgba(43,33,31,0.65) 42%, rgba(43,33,31,0.2) 68%, rgba(43,33,31,0) 85%),
+            url('{HERO_SKYLINE_URI}') center 30% / cover no-repeat;
+        filter: sepia(0.4) hue-rotate(-30deg) saturate(1.5) brightness(0.9);
+        transform-origin: center 70%;
+        animation: heroKenBurns 22s ease-in-out infinite alternate;
+    }}
+    /* A handful of faint building-light twinkles, layered above the skyline
+       and below the text. */
+    .hero-twinkles {{
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+    }}
+    .hero-twinkles span {{
+        position: absolute;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,245,220,0.95) 0%, rgba(255,245,220,0) 70%);
+        animation: heroTwinkle 3.4s ease-in-out infinite both;
     }}
     .st-key-hero h1 {{
         color: #FFFAF0 !important;
@@ -110,6 +150,17 @@ st.markdown(
 )
 
 with st.container(key="hero"):
+    st.markdown(
+        """<div class="hero-twinkles">
+            <span style="top:36%; left:54%; animation-delay:0s;"></span>
+            <span style="top:44%; left:62%; animation-delay:0.9s;"></span>
+            <span style="top:33%; left:70%; animation-delay:1.7s;"></span>
+            <span style="top:49%; left:77%; animation-delay:0.4s;"></span>
+            <span style="top:40%; left:84%; animation-delay:1.3s;"></span>
+            <span style="top:53%; left:91%; animation-delay:2.1s;"></span>
+        </div>""",
+        unsafe_allow_html=True,
+    )
     st.title("See what it'll actually earn, before you buy it.")
     st.markdown(
         "<h3 class='landing-subheading'>London, Bristol, and Greater Manchester — "
@@ -474,6 +525,7 @@ tech_section_html = f'''
     text-align: center;
 }}
 .tech-label {{
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -606,7 +658,7 @@ st.markdown(
             linear-gradient(rgba(255,250,240,0.86), rgba(255,250,240,0.86)),
             url('{HERO_SKYLINE_URI}') center 40% / cover no-repeat;
         padding: 48px 40px;
-        margin-top: -16px;
+        margin-top: -32px;
         width: auto;
         max-width: 100vw !important;
         position: relative;
@@ -728,6 +780,7 @@ footer_html = f'''
     margin-right: calc(-50vw + 50%);
 }}
 .app-footer .footer-label {{
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -799,6 +852,7 @@ st.markdown(
         margin: 0 auto !important;
     }
     .st-key-footer_nav .footer-nav-heading {
+        font-family: 'Space Grotesk', sans-serif;
         color: #F2F2F2;
         font-size: 0.78rem;
         font-weight: 700;
