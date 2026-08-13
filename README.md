@@ -491,4 +491,10 @@ to connect and configure it through the Community Cloud UI:
 > `ALTER USER AIRBNB_APP_SVC SET RSA_PUBLIC_KEY = '<new key>';` or
 > `ALTER USER AIRBNB_APP_SVC SET DISABLED = TRUE;`
 
+# Contributions
+
+Sunil Ramjali: Data Strategy, ETL Modelling and Engineering, Full end-to-end ETL process, AWS S3 Storage implementation.
+Kanmani: AI Recommender system and Investment Scoring System.
+Ayenorya: Initial Website UI using Streamlit.
+Adam: Improved UI using Streamlit.
 
